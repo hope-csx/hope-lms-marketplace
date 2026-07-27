@@ -7,27 +7,28 @@
 # `helm template` / `mpdev verify` smoke tests; they are NOT production values.
 #
 # IMPORTANT: image fields are parameterized in ../schema.yaml (type: FULL).
-# The `api` image is the primary image (the '' key in schema.yaml); the others
-# are additional images. Do not rely on these default registries — Marketplace
+# The `api` image is the primary image (the '' key in schema.yaml), so it lives
+# at the product root path with no name segment; every other image is a sibling
+# beneath that root. Do not rely on these default registries — Marketplace
 # rewrites them to the customer's re-published locations at deploy time.
 
 # ── Container images ──────────────────────────────────────────────────────────
 api:
-  image: us-docker.pkg.dev/hope-lms-public/hope-lms/api:0.1.0
+  image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms:0.1.0
   replicas: 2
 web:
-  image: us-docker.pkg.dev/hope-lms-public/hope-lms/web:0.1.0
+  image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/web:0.1.0
   replicas: 2
 agentEngine:
-  image: us-docker.pkg.dev/hope-lms-public/hope-lms/agent-engine:0.1.0
+  image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/agent-engine:0.1.0
   replicas: 2
 a2f3dEngine:
-  image: us-docker.pkg.dev/hope-lms-public/hope-lms/a2f3d-engine:0.1.0
+  image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/a2f3d-engine:0.1.0
   replicas: 2
 
 # Deployer image reference — recorded on the Application resource so the
 # Marketplace UI can show the installed version. Set by the release pipeline.
-deployerImage: us-docker.pkg.dev/hope-lms-public/hope-lms/deployer:0.1.0
+deployerImage: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/deployer:0.1.0
 
 # ── Reporting secret (Marketplace usage reporting / entitlement) ──────────────
 # Injected by Marketplace when the app is a paid listing. Referenced by the

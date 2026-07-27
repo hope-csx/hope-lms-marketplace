@@ -23,6 +23,7 @@ on the product's Cloud Marketplace listing.
 | `schema.yaml`         | Marketplace parameter schema (mounted at `/data/schema.yaml`)      |
 | `Dockerfile.deployer` | Builds the deployer image (Helm base image + chart + schema)       |
 | `Dockerfile.tester`   | Builds the optional `mpdev verify` smoke-test image                |
+| `apptest/`            | Post-deploy health checks run by the tester image                  |
 | `LICENSE` / `NOTICE`  | Apache License 2.0 terms for the contents of this repository       |
 
 ## Overview
@@ -41,6 +42,34 @@ GKE cluster:
 All data is stored in Cloud SQL (PostgreSQL 16) and Memorystore for Redis,
 which you provision in your own project. Nothing in HOPE LMS calls out to
 the public internet, so it runs correctly in a tenant with no egress.
+
+## Registry layout
+
+Every image is published under a single product root path. Note that `api` is
+the **primary image** and therefore lives at that root itself, with no name
+segment — the other images are siblings beneath it:
+
+| Image                    | Path                                                          |
+| ------------------------ | ------------------------------------------------------------- |
+| `api` (product root)     | `us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms`     |
+| `web`                    | `.../hope-mtp/hope-lms/web`                                   |
+| `agent-engine`           | `.../hope-mtp/hope-lms/agent-engine`                          |
+| `a2f3d-engine`           | `.../hope-mtp/hope-lms/a2f3d-engine`                          |
+| `deployer`               | `.../hope-mtp/hope-lms/deployer`                              |
+| `tester`                 | `.../hope-mtp/hope-lms/tester`                                |
+
+Each is tagged with both the release track (`0.1`) and the exact version
+(`0.1.0`). When Marketplace installs the app it re-publishes these images into
+its own registry and rewrites the chart's image values accordingly, so the
+paths above matter only if you are mirroring images into an internal registry
+for a disconnected install:
+
+```bash
+export ROOT=us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms
+for img in "" /web /agent-engine /a2f3d-engine /deployer; do
+  crane copy "$ROOT$img:0.1.0" "YOUR_REGISTRY/hope-lms$img:0.1.0"
+done
+```
 
 ## One-time setup
 
@@ -133,7 +162,7 @@ Complete these steps once per cluster, before your first CLI install.
    or an exact version (`0.1.0`):
 
    ```bash
-   export REGISTRY=us-docker.pkg.dev/cornerstonex-public/hope-mtp
+   export REGISTRY=us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms
    export TAG=0.1
 
    mpdev install \
@@ -158,10 +187,14 @@ Complete these steps once per cluster, before your first CLI install.
 
    ```bash
    kubectl -n hope-lms get pods
-   kubectl -n hope-lms logs deploy/hope-lms-api -c migrate-and-seed
-   kubectl -n hope-lms logs deploy/hope-lms-api | grep -i license
-   kubectl -n hope-lms exec deploy/hope-lms-web -- wget -qO- http://hope-lms-api:3001/health
+   kubectl -n hope-lms logs deploy/api -c migrate-and-seed
+   kubectl -n hope-lms logs deploy/api | grep -i license
+   kubectl -n hope-lms exec deploy/web -- wget -qO- http://api/health
    ```
+
+   > Workload names (`api`, `web`, `agent-engine`, `a2f3d-engine`) are fixed by
+   > the chart and do not vary with the release name, so the commands above work
+   > for any install. The `api` and `web` Services listen on port 80.
 
 ## Basic usage
 
@@ -226,7 +259,7 @@ Each workload's replica count is a Helm value (`api.replicas`,
 to `2`. Scale by re-installing with updated values, or directly:
 
 ```bash
-kubectl -n hope-lms scale deployment/hope-lms-api --replicas=4
+kubectl -n hope-lms scale deployment/api --replicas=4
 ```
 
 Horizontal Pod Autoscalers are included in the chart for each workload and

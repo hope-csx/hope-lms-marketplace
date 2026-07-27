@@ -1,6 +1,7 @@
 # HOPE LMS Marketplace tester image.
 #
-# Published to <hostname>/<project>/hope-lms/tester:<version>. Referenced by the
+# Published to <product-root>/tester:<version> — see "Registry layout" in
+# README.md. Referenced by the
 # Marketplace `apptest` verification flow; runs smoke-test.sh against the freshly
 # installed release and exits non-zero on failure.
 #

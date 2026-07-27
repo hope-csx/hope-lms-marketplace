@@ -1,7 +1,7 @@
 # HOPE LMS Google Cloud Marketplace deployer image.
 #
-# Published to <hostname>/<project>/hope-lms/deployer:<version> where hostname
-# is gcr.io or us-docker.pkg.dev. The tag MUST equal x-google-marketplace
+# Published to <product-root>/deployer:<version> — see "Registry layout" in
+# README.md. The tag MUST equal x-google-marketplace
 # .publishedVersion in schema.yaml (enforced by scripts/sync-marketplace-version.mjs).
 #
 # The Helm deployer base image bundles helm + kubectl and the Marketplace

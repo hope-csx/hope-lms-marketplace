@@ -24,8 +24,10 @@ x-google-marketplace:
 
   # All images used by the app MUST be declared and parameterized here so
   # Marketplace can re-publish and re-tag them into the customer-visible
-  # registry. The '' (empty) key is the primary image and shares the deployer's
-  # repository path; the others are additional images at sibling repo paths.
+  # registry. The '' (empty) key is the primary image: Marketplace resolves it by
+  # path convention at the product root itself, so `api` must be published to
+  # that exact path with no name segment. The others are additional images at
+  # sibling paths beneath it. See "Registry layout" in README.md.
   images:
     '':
       properties:
