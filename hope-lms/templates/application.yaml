@@ -1,0 +1,52 @@
+{{- include "hope-lms.requireLicense" . -}}
+apiVersion: app.k8s.io/v1beta1
+kind: Application
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hope-lms.labels" . | nindent 4 }}
+  annotations:
+    kubernetes-engine.cloud.google.com/icon: >-
+      data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==
+    marketplace.cloud.google.com/deploy-info: '{"partner_id": "cornerstonex", "product_id": "hope-lms", "partner_name": "CornerstoneX"}'
+spec:
+  descriptor:
+    type: HOPE LMS
+    version: {{ .Chart.AppVersion | quote }}
+    description: >-
+      HOPE LMS learning management system (web, api, agent-engine,
+      a2f3d-engine). Requires a valid offline license and customer-provisioned
+      Cloud SQL, Memorystore (Redis) and Cloud KMS resources.
+    maintainers:
+      - name: CornerstoneX
+        url: https://www.cornerstonex.ai
+    links:
+      - description: Deployment & configuration guide
+        url: https://www.cornerstonex.ai/hope-lms/docs/deploy-guide.html
+    notes: >-
+      After install, verify all pods are Ready and browse to your configured
+      appUrl. Monitor Cloud Logging for LICENSE_EXPIRY_WARNING entries — the API
+      logs an error daily once the license is within 30 days of expiry, and
+      refuses to boot once expired.
+  info:
+    - name: Web URL
+      value: {{ .Values.domains.appUrl | quote }}
+    - name: Deployer image
+      value: {{ .Values.deployerImage | quote }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  componentKinds:
+    - group: apps/v1
+      kind: Deployment
+    - group: v1
+      kind: Service
+    - group: v1
+      kind: ConfigMap
+    - group: v1
+      kind: Secret
+    - group: v1
+      kind: ServiceAccount
+    - group: autoscaling/v2
+      kind: HorizontalPodAutoscaler

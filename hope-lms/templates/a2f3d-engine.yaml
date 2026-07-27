@@ -1,0 +1,201 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: a2f3d-engine
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: a2f3d-engine
+    {{- include "hope-lms.labels" . | nindent 4 }}
+  {{- if .Values.serviceAccounts.a2f3dEngineGsa }}
+  annotations:
+    iam.gke.io/gcp-service-account: {{ .Values.serviceAccounts.a2f3dEngineGsa | quote }}
+  {{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: a2f3d-engine-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hope-lms.labels" . | nindent 4 }}
+data:
+  APP_ENV: 'production'
+  DEPLOY_ENV: {{ .Values.gcp.deployEnv | quote }}
+  GCP_PROJECT_ID: {{ .Values.gcp.projectId | quote }}
+  SERVICE_NAME: 'a2f3d-engine'
+  HOST: '0.0.0.0'
+  PORT: '9005'
+  # Customer-supplied NVIDIA Audio2Face-3D NIM endpoint (not shipped by this chart).
+  A2F_NIM_URL: {{ .Values.a2f3d.nimUrl | quote }}
+  NIM_SECURE_MODE: {{ .Values.a2f3d.nimSecureMode | quote }}
+  {{- if eq .Values.a2f3d.nimSecureMode "mtls" }}
+  NIM_ROOT_CERT_PATH: '/var/run/secrets/nim-mtls/root-ca.pem'
+  NIM_CLIENT_CERT_PATH: '/var/run/secrets/nim-mtls/client-cert.pem'
+  NIM_CLIENT_KEY_PATH: '/var/run/secrets/nim-mtls/client-key.pem'
+  {{- end }}
+  NIM_MAX_CONCURRENT: '4'
+  NIM_MAX_QUEUED: '8'
+  NIM_QUEUE_PUT_TIMEOUT_SECONDS: '5'
+  REQUEST_TIMEOUT_SECONDS: '120'
+  CONFIG_RECEIVE_TIMEOUT_SECONDS: '30'
+  CONNECTION_IDLE_TIMEOUT_SECONDS: '300'
+  MAX_REQUESTS_PER_CONNECTION: '50'
+  INTERNAL_SVC_JWT_KID: 'hope-lms-api-v1'
+  REDIS_KEY_PREFIX: 'a2f3d-engine:'
+  OTEL_SERVICE_NAME: 'a2f3d-engine'
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: a2f3d-engine
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: a2f3d-engine
+    {{- include "hope-lms.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: a2f3d-engine
+  ports:
+    - name: http
+      port: 9005
+      targetPort: 9005
+      protocol: TCP
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: a2f3d-engine
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: a2f3d-engine
+    {{- include "hope-lms.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.a2f3dEngine.replicas }}
+  progressDeadlineSeconds: 1500
+  selector:
+    matchLabels:
+      app: a2f3d-engine
+  template:
+    metadata:
+      labels:
+        app: a2f3d-engine
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      serviceAccountName: a2f3d-engine
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- if eq .Values.a2f3d.nimSecureMode "mtls" }}
+        - name: nim-mtls
+          secret:
+            secretName: nim-a2f3d-mtls
+        {{- end }}
+      containers:
+        - name: a2f3d-engine
+          image: {{ .Values.a2f3dEngine.image | quote }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9005
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: a2f3d-engine-config
+            - secretRef:
+                name: a2f3d-engine-secret
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- if eq .Values.a2f3d.nimSecureMode "mtls" }}
+            - name: nim-mtls
+              mountPath: /var/run/secrets/nim-mtls
+              readOnly: true
+            {{- end }}
+          resources:
+            requests:
+              cpu: '250m'
+              memory: '512Mi'
+            limits:
+              cpu: '1000m'
+              memory: '1Gi'
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 9005
+            failureThreshold: 90
+            periodSeconds: 10
+            timeoutSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 9005
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 9005
+            periodSeconds: 30
+            failureThreshold: 3
+            timeoutSeconds: 10
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: a2f3d-engine
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hope-lms.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: a2f3d-engine
+  minReplicas: {{ .Values.a2f3dEngine.replicas }}
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: a2f3d-engine-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hope-lms.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: a2f3d-engine
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: api
+      ports:
+        - protocol: TCP
+          port: 9005

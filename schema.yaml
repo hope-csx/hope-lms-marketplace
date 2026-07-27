@@ -1,0 +1,293 @@
+x-google-marketplace:
+  # MUST be v2.
+  schemaVersion: v2
+
+  # MUST match the version of the Application custom resource object.
+  applicationApiVersion: v1beta1
+
+  # The release version. MUST match the release tag on the deployer image.
+  # Kept in lockstep with Chart.yaml and the deployer tag by
+  # scripts/sync-marketplace-version.mjs.
+  publishedVersion: '0.1.0'
+  publishedVersionMetadata:
+    releaseNote: >-
+      Initial Google Cloud Marketplace release of HOPE LMS (web, api,
+      agent-engine, a2f3d-engine) with offline license enforcement.
+    releaseTypes:
+      - Feature
+    recommended: true
+
+  # Deployer uses the Helm base image; the chart lives at
+  # /data/chart/hope-lms.tar.gz inside the deployer image.
+  managedUpdates:
+    kalmSupported: false
+
+  # All images used by the app MUST be declared and parameterized here so
+  # Marketplace can re-publish and re-tag them into the customer-visible
+  # registry. The '' (empty) key is the primary image and shares the deployer's
+  # repository path; the others are additional images at sibling repo paths.
+  images:
+    '':
+      properties:
+        api.image:
+          type: FULL
+    web:
+      properties:
+        web.image:
+          type: FULL
+    agent-engine:
+      properties:
+        agentEngine.image:
+          type: FULL
+    a2f3d-engine:
+      properties:
+        a2f3dEngine.image:
+          type: FULL
+
+  # The deployer service account needs no extra cluster permissions beyond the
+  # default Marketplace deployer role: the chart creates only namespaced
+  # resources (Deployments, Services, ConfigMaps, Secrets, ServiceAccounts,
+  # HPAs, NetworkPolicies, and the Application CR).
+  clusterConstraints:
+    resources:
+      - replicas: 2
+        requests:
+          cpu: 700m
+          memory: 1536Mi
+        affinity:
+          simpleNodeAffinity:
+            type: REQUIRE_ONE_NODE_PER_REPLICA
+
+properties:
+  name:
+    type: string
+    x-google-marketplace:
+      type: NAME
+  namespace:
+    type: string
+    x-google-marketplace:
+      type: NAMESPACE
+
+  # ── GCP deployment identifiers ──────────────────────────────────────────────
+  gcp.projectId:
+    type: string
+    title: GCP project ID
+    description: >-
+      The GCP project ID of your air-gapped tenant that HOPE LMS is deployed
+      into. Used to resolve Cloud KMS keys and (optionally) Secret Manager.
+  gcp.deployEnv:
+    type: string
+    title: Deployment tier
+    description: Deployment target tier. Keep as 'prod' for Marketplace installs.
+    default: prod
+    enum:
+      - prod
+      - staging
+
+  # ── Public URLs / domains ───────────────────────────────────────────────────
+  domains.appUrl:
+    type: string
+    title: Web app URL
+    description: Absolute browser-facing URL of the web app, e.g. https://hope.agency.gov
+    pattern: '^https://.+'
+  domains.corsOrigin:
+    type: string
+    title: CORS origin
+    description: Allowed CORS origin for the API. Normally identical to the web app URL.
+    pattern: '^https://.+'
+  domains.jwtIssuer:
+    type: string
+    title: API URL (JWT issuer)
+    description: Absolute API URL, e.g. https://api.hope.agency.gov. Also used as the browser API URL.
+    pattern: '^https://.+'
+  domains.jwtAudience:
+    type: string
+    title: JWT audience
+    description: JWT audience. Normally identical to the web app URL.
+    pattern: '^https://.+'
+  domains.cookieDomain:
+    type: string
+    title: Cookie domain
+    description: Parent domain shared by the web and API hosts, e.g. agency.gov
+  domains.brandingAssetPublicBaseUrl:
+    type: string
+    title: Branding asset base URL
+    description: Absolute public base URL of the API as reached by browsers (serves org branding assets).
+    pattern: '^https://.+'
+  domains.oktaDisplayName:
+    type: string
+    title: SSO button label
+    description: Display name shown on the login screen SSO button (optional).
+    default: ''
+  domains.oidcOktaRedirectUri:
+    type: string
+    title: OIDC redirect URI
+    description: Platform-wide OIDC callback URL registered with your IdP (optional; only if using SSO).
+    default: ''
+  domains.oidcOktaPostLoginRedirect:
+    type: string
+    title: OIDC post-login redirect
+    description: URL the browser is sent to after successful SSO (optional; defaults to the web app URL).
+    default: ''
+
+  # ── Cloud KMS (customer pre-provisioned, HSM-backed) ────────────────────────
+  kms.jwtKmsKeyVersion:
+    type: string
+    title: JWT signing KMS key version
+    description: >-
+      Fully-qualified Cloud KMS cryptoKeyVersion used to sign access tokens
+      (projects/.../cryptoKeyVersions/N). Must be an ASYMMETRIC_SIGN key.
+  kms.authDataKmsKey:
+    type: string
+    title: Auth-data KMS key
+    description: >-
+      Fully-qualified Cloud KMS cryptoKey used to wrap TOTP secrets and other
+      auth data (projects/.../cryptoKeys/auth-data). Must be ENCRYPT_DECRYPT.
+
+  # ── Workload Identity: customer GCP service account emails ──────────────────
+  serviceAccounts.apiGsa:
+    type: string
+    title: API GCP service account
+    description: Email of the GSA bound to the API Kubernetes ServiceAccount (Workload Identity).
+  serviceAccounts.webGsa:
+    type: string
+    title: Web GCP service account
+    description: Email of the GSA bound to the web Kubernetes ServiceAccount (Workload Identity).
+    default: ''
+  serviceAccounts.agentEngineGsa:
+    type: string
+    title: Agent-engine GCP service account
+    description: Email of the GSA bound to the agent-engine ServiceAccount (needs Vertex AI access).
+  serviceAccounts.a2f3dEngineGsa:
+    type: string
+    title: A2F-3D engine GCP service account
+    description: Email of the GSA bound to the a2f3d-engine ServiceAccount.
+    default: ''
+
+  # ── Connection strings (customer-supplied secrets) ──────────────────────────
+  secrets.databaseUrl:
+    type: string
+    title: PostgreSQL connection URL
+    description: Cloud SQL (PostgreSQL 16) connection URL, including credentials.
+    x-google-marketplace:
+      type: MASKED_FIELD
+  secrets.redisUrl:
+    type: string
+    title: Redis (Memorystore) URL
+    description: Memorystore for Redis connection URL, including any AUTH token.
+    x-google-marketplace:
+      type: MASKED_FIELD
+
+  # ── Internal service keypairs (customer-supplied secrets) ───────────────────
+  secrets.internalSvcJwtPrivateKey:
+    type: string
+    title: Internal service JWT private key (PEM)
+    description: RS256 private key the API uses to sign internal service-to-service tokens.
+    x-google-marketplace:
+      type: MASKED_FIELD
+  secrets.internalSvcJwtPublicKey:
+    type: string
+    title: Internal service JWT public key (PEM)
+    description: Matching RS256 public key the engines use to verify API tokens.
+    x-google-marketplace:
+      type: MASKED_FIELD
+  secrets.agentEngineCallbackJwtPublicKey:
+    type: string
+    title: Agent-engine callback public key (PEM)
+    description: RS256 public key the API uses to verify callbacks from the agent-engine.
+    x-google-marketplace:
+      type: MASKED_FIELD
+  secrets.apiCallbackJwtPrivateKey:
+    type: string
+    title: Agent-engine callback private key (PEM)
+    description: Matching RS256 private key the agent-engine uses to sign callbacks to the API.
+    x-google-marketplace:
+      type: MASKED_FIELD
+
+  # ── Generated secrets (auto-created by Marketplace) ─────────────────────────
+  secrets.sessionPepper:
+    type: string
+    x-google-marketplace:
+      type: GENERATED_PASSWORD
+      generatedProperties:
+        length: 48
+        includeSymbols: false
+        base64: true
+  secrets.invitationPepper:
+    type: string
+    x-google-marketplace:
+      type: GENERATED_PASSWORD
+      generatedProperties:
+        length: 48
+        includeSymbols: false
+        base64: true
+  secrets.ipHashPepper:
+    type: string
+    x-google-marketplace:
+      type: GENERATED_PASSWORD
+      generatedProperties:
+        length: 48
+        includeSymbols: false
+        base64: true
+  secrets.captchaHmacKey:
+    type: string
+    x-google-marketplace:
+      type: GENERATED_PASSWORD
+      generatedProperties:
+        length: 48
+        includeSymbols: false
+        base64: true
+
+  # ── Offline license (REQUIRED) ──────────────────────────────────────────────
+  license.key:
+    type: string
+    title: HOPE LMS license
+    description: >-
+      The signed license blob issued to your organization by CornerstoneX.
+      Without a valid, unexpired license the application will not start.
+    x-google-marketplace:
+      type: MASKED_FIELD
+
+  # ── NVIDIA Audio2Face-3D NIM (customer-supplied) ────────────────────────────
+  a2f3d.nimUrl:
+    type: string
+    title: NVIDIA NIM endpoint
+    description: gRPC endpoint of your NVIDIA Audio2Face-3D NIM. Not shipped or managed by this app.
+    default: nim-a2f3d.hope-lms.svc.cluster.local:52000
+  a2f3d.nimSecureMode:
+    type: string
+    title: NIM transport security
+    description: Use 'mtls' to authenticate to the NIM with client certificates, or 'disabled'.
+    default: disabled
+    enum:
+      - disabled
+      - mtls
+
+  # ── Feature toggles ─────────────────────────────────────────────────────────
+  seedOnBoot:
+    type: boolean
+    title: Seed application owner on first boot
+    description: Run the idempotent bootstrap seed to create the initial application owner.
+    default: true
+
+required:
+  - name
+  - namespace
+  - gcp.projectId
+  - domains.appUrl
+  - domains.corsOrigin
+  - domains.jwtIssuer
+  - domains.jwtAudience
+  - domains.cookieDomain
+  - domains.brandingAssetPublicBaseUrl
+  - kms.jwtKmsKeyVersion
+  - kms.authDataKmsKey
+  - serviceAccounts.apiGsa
+  - serviceAccounts.agentEngineGsa
+  - secrets.databaseUrl
+  - secrets.redisUrl
+  - secrets.internalSvcJwtPrivateKey
+  - secrets.internalSvcJwtPublicKey
+  - secrets.agentEngineCallbackJwtPublicKey
+  - secrets.apiCallbackJwtPrivateKey
+  - license.key

@@ -1,0 +1,184 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: agent-engine
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: agent-engine
+    {{- include "hope-lms.labels" . | nindent 4 }}
+  {{- if .Values.serviceAccounts.agentEngineGsa }}
+  annotations:
+    iam.gke.io/gcp-service-account: {{ .Values.serviceAccounts.agentEngineGsa | quote }}
+  {{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-engine-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hope-lms.labels" . | nindent 4 }}
+data:
+  APP_ENV: 'production'
+  DEPLOY_ENV: {{ .Values.gcp.deployEnv | quote }}
+  GCP_PROJECT_ID: {{ .Values.gcp.projectId | quote }}
+  SERVICE_NAME: 'agent-engine'
+  HOST: '0.0.0.0'
+  PORT: '2026'
+  VERTEX_LOCATION: {{ .Values.vertex.location | quote }}
+  VERTEX_CHAT_MODEL: {{ .Values.vertex.chatModel | quote }}
+  VERTEX_EMBEDDING_MODEL: {{ .Values.vertex.embeddingModel | quote }}
+  VERTEX_USE_CONTEXT_CACHE: 'true'
+  REDIS_KEY_PREFIX: 'agent-engine:'
+  REDIS_BROKER_ENABLED: 'true'
+  REDIS_CHANNEL_PREFIX: 'aegra:run:'
+  SESSION_TTL_SECONDS: '3600'
+  CONTEXT_WINDOW: '10'
+  INTERNAL_SVC_JWT_KID: 'hope-lms-api-v1'
+  API_CALLBACK_JWT_KID: 'hope-lms-agent-engine-callback-v1'
+  OTEL_SERVICE_NAME: 'agent-engine'
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: agent-engine
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: agent-engine
+    {{- include "hope-lms.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: agent-engine
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 2026
+      protocol: TCP
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-engine
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: agent-engine
+    {{- include "hope-lms.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.agentEngine.replicas }}
+  progressDeadlineSeconds: 600
+  selector:
+    matchLabels:
+      app: agent-engine
+  template:
+    metadata:
+      labels:
+        app: agent-engine
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      serviceAccountName: agent-engine
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      containers:
+        - name: agent-engine
+          image: {{ .Values.agentEngine.image | quote }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 2026
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: agent-engine-config
+            - secretRef:
+                name: agent-engine-secret
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: '250m'
+              memory: '512Mi'
+            limits:
+              cpu: '1000m'
+              memory: '1Gi'
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 2026
+            failureThreshold: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 2026
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 2026
+            periodSeconds: 30
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: agent-engine
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hope-lms.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: agent-engine
+  minReplicas: {{ .Values.agentEngine.replicas }}
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+---
+# Default-deny ingress; only the API pods may reach the agent engine
+# (FedRAMP AC-3, AC-4, SC-7). The engine is never load-balancer exposed.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent-engine-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hope-lms.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: agent-engine
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: api
+      ports:
+        - protocol: TCP
+          port: 2026

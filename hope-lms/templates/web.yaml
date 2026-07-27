@@ -1,0 +1,142 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: web
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: web
+    {{- include "hope-lms.labels" . | nindent 4 }}
+  {{- if .Values.serviceAccounts.webGsa }}
+  annotations:
+    iam.gke.io/gcp-service-account: {{ .Values.serviceAccounts.webGsa | quote }}
+  {{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: web-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hope-lms.labels" . | nindent 4 }}
+data:
+  NODE_ENV: 'production'
+  # Browser-facing API URL. Deliberately NOT NEXT_PUBLIC_API_URL: the web
+  # image is published once and reused by every Marketplace customer
+  # install, so this value cannot be baked in at build time — it is read by
+  # the root layout at request time and embedded into a per-page runtime
+  # config script tag. See apps/web/lib/runtime-config.ts and
+  # docs/adr/0026-runtime-public-api-url.md.
+  API_PUBLIC_URL: {{ .Values.domains.jwtIssuer | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: web
+    {{- include "hope-lms.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: web
+  ports:
+    - name: http
+      port: 80
+      targetPort: 3000
+      protocol: TCP
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: web
+    {{- include "hope-lms.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.web.replicas }}
+  progressDeadlineSeconds: 900
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      serviceAccountName: web
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      containers:
+        - name: web
+          image: {{ .Values.web.image | quote }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: web-config
+          resources:
+            requests:
+              cpu: '100m'
+              memory: '256Mi'
+            limits:
+              cpu: '500m'
+              memory: '512Mi'
+          startupProbe:
+            httpGet:
+              path: /
+              port: 3000
+            failureThreshold: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            periodSeconds: 30
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: web
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hope-lms.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: web
+  minReplicas: {{ .Values.web.replicas }}
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80

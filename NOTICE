@@ -1,0 +1,20 @@
+HOPE LMS — Google Cloud Marketplace deployment assets
+Copyright 2026 CornerstoneX
+
+This product includes software developed by CornerstoneX
+(https://www.cornerstonex.ai).
+
+Scope of this repository
+-------------------------
+This repository contains only the deployment configuration required to
+install HOPE LMS from Google Cloud Marketplace via the command line: the
+Helm chart, the Marketplace parameter schema, the deployer/tester container
+build files, and this documentation. It does not contain the HOPE LMS
+application source code, which remains proprietary to CornerstoneX and is
+distributed exclusively as container images through Google Cloud Marketplace
+under the HOPE LMS commercial license agreement.
+
+The Apache License, Version 2.0 (see LICENSE) applies only to the contents
+of this repository (the deployment configuration described above). It does
+not extend to the HOPE LMS application, its container images, or any
+CornerstoneX trademarks.

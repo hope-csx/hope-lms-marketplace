@@ -1,0 +1,213 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: api
+    {{- include "hope-lms.labels" . | nindent 4 }}
+  {{- if .Values.serviceAccounts.apiGsa }}
+  annotations:
+    iam.gke.io/gcp-service-account: {{ .Values.serviceAccounts.apiGsa | quote }}
+  {{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hope-lms.labels" . | nindent 4 }}
+data:
+  PORT: '3001'
+  NODE_ENV: 'production'
+  CORS_ORIGIN: {{ .Values.domains.corsOrigin | quote }}
+  GCP_PROJECT_ID: {{ .Values.gcp.projectId | quote }}
+  DEPLOY_ENV: {{ .Values.gcp.deployEnv | quote }}
+  JWT_KMS_KEY_VERSION: {{ .Values.kms.jwtKmsKeyVersion | quote }}
+  AUTH_DATA_KMS_KEY: {{ .Values.kms.authDataKmsKey | quote }}
+  JWT_ISSUER: {{ .Values.domains.jwtIssuer | quote }}
+  JWT_AUDIENCE: {{ .Values.domains.jwtAudience | quote }}
+  APP_URL: {{ .Values.domains.appUrl | quote }}
+  COOKIE_DOMAIN: {{ .Values.domains.cookieDomain | quote }}
+  SESSION_COOKIE_NAME: 'hope_session'
+  OKTA_DISPLAY_NAME: {{ .Values.domains.oktaDisplayName | quote }}
+  {{- if .Values.domains.oidcOktaRedirectUri }}
+  OIDC_OKTA_REDIRECT_URI: {{ .Values.domains.oidcOktaRedirectUri | quote }}
+  {{- end }}
+  {{- if .Values.domains.oidcOktaPostLoginRedirect }}
+  OIDC_OKTA_POST_LOGIN_REDIRECT: {{ .Values.domains.oidcOktaPostLoginRedirect | quote }}
+  {{- end }}
+  HIBP_ENABLED: 'true'
+  CAPTCHA_ENABLED: {{ .Values.captchaEnabled | quote }}
+  SESSION_IDLE_MINUTES: '15'
+  SESSION_ABSOLUTE_HOURS: '12'
+  ACCESS_TOKEN_MINUTES: '10'
+  BOOTSTRAP_APP_OWNER_EMAIL: {{ .Values.bootstrapOwner.email | quote }}
+  BOOTSTRAP_APP_OWNER_FIRST_NAME: {{ .Values.bootstrapOwner.firstName | quote }}
+  BOOTSTRAP_APP_OWNER_LAST_NAME: {{ .Values.bootstrapOwner.lastName | quote }}
+  SEED_ON_BOOT: {{ .Values.seedOnBoot | quote }}
+  AGENT_ENGINE_BASE_URL: 'http://agent-engine.{{ .Release.Namespace }}.{{ include "hope-lms.svcDomain" . }}:8000'
+  A2F3D_ENGINE_BASE_URL: 'ws://a2f3d-engine.{{ .Release.Namespace }}.{{ include "hope-lms.svcDomain" . }}:9005'
+  A2F3D_ENGINE_REQUEST_TIMEOUT_SECONDS: '120'
+  ASSESSMENT_TARGET_URL: 'http://agent-engine.{{ .Release.Namespace }}.{{ include "hope-lms.svcDomain" . }}:8000/internal/assessments/score'
+  ASSESSMENT_CALLBACK_BASE_URL: 'http://api.{{ .Release.Namespace }}.{{ include "hope-lms.svcDomain" . }}'
+  AGENT_ENGINE_CALLBACK_JWT_KID: 'hope-lms-agent-engine-callback-v1'
+  BRANDING_ASSET_MAX_FILE_SIZE_BYTES: '2097152'
+  BRANDING_ASSET_PUBLIC_BASE_URL: {{ .Values.domains.brandingAssetPublicBaseUrl | quote }}
+  # Enforce the offline license gate. Only ever 'true' for Marketplace installs.
+  HOPE_LICENSE_ENFORCED: 'true'
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: api
+    {{- include "hope-lms.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: api
+  ports:
+    - name: http
+      port: 80
+      targetPort: 3001
+      protocol: TCP
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: api
+    {{- include "hope-lms.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.api.replicas }}
+  progressDeadlineSeconds: 600
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      serviceAccountName: api
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      initContainers:
+        - name: migrate-and-seed
+          image: {{ .Values.api.image | quote }}
+          imagePullPolicy: IfNotPresent
+          workingDir: /app/apps/api
+          command:
+            - node
+            - prisma/migrate-and-seed.js
+          envFrom:
+            - configMapRef:
+                name: api-config
+            - secretRef:
+                name: api-secret
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: '100m'
+              memory: '256Mi'
+            limits:
+              cpu: '500m'
+              memory: '512Mi'
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1001
+            capabilities:
+              drop:
+                - ALL
+      containers:
+        - name: api
+          image: {{ .Values.api.image | quote }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3001
+              protocol: TCP
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          envFrom:
+            - configMapRef:
+                name: api-config
+            - secretRef:
+                name: api-secret
+            - secretRef:
+                name: hope-lms-license
+          resources:
+            requests:
+              cpu: '100m'
+              memory: '256Mi'
+            limits:
+              cpu: '500m'
+              memory: '512Mi'
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 3001
+            failureThreshold: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3001
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3001
+            periodSeconds: 30
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hope-lms.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api
+  minReplicas: {{ .Values.api.replicas }}
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80

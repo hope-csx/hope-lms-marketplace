@@ -1,0 +1,30 @@
+# HOPE LMS Google Cloud Marketplace deployer image.
+#
+# Published to <hostname>/<project>/hope-lms/deployer:<version> where hostname
+# is gcr.io or us-docker.pkg.dev. The tag MUST equal x-google-marketplace
+# .publishedVersion in schema.yaml (enforced by scripts/sync-marketplace-version.mjs).
+#
+# The Helm deployer base image bundles helm + kubectl and the Marketplace
+# install/uninstall entrypoints. At deploy time it renders the chart under
+# /data/chart with the parameters collected from /data/schema.yaml and applies
+# the result (including the Application CR) to the customer's cluster.
+#
+# NOTE: pin BUILD_DEPLOYER_TAG to an immutable digest in the release pipeline
+# (see .github/workflows/marketplace-release.yml). The mutable tag here is only
+# a readable default for local `mpdev` smoke tests.
+#
+# NOTE: Google renumbered this image's tags from the 0.12.x / 0.13.x series
+# straight to 13.0.x (dropping the leading "0."). There is no 0.13.0 tag —
+# check current tags with `gcloud container images list-tags
+# gcr.io/cloud-marketplace-tools/k8s/deployer_helm` before bumping this.
+ARG MARKETPLACE_TOOLS_TAG=13.0.4
+FROM gcr.io/cloud-marketplace-tools/k8s/deployer_helm:$MARKETPLACE_TOOLS_TAG
+
+# Package the chart into /data/chart (the location the base image renders from).
+COPY hope-lms /tmp/hope-lms
+RUN mkdir -p /data/chart \
+    && helm package /tmp/hope-lms --destination /data/chart \
+    && rm -rf /tmp/hope-lms
+
+# The parameter schema the Marketplace UI collects values against.
+COPY schema.yaml /data/schema.yaml

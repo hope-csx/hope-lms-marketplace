@@ -1,0 +1,6 @@
+# Local CLI deployment parameters — contains credentials, never commit.
+params.json
+values-*.local.yaml
+
+# OS / editor cruft
+.DS_Store
