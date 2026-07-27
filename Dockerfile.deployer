@@ -29,11 +29,50 @@ RUN apt-get update \
     && apt-get upgrade -y \
     && rm -rf /var/lib/apt/lists/*
 
-# Package the chart into /data/chart (the location the base image renders from).
-COPY hope-lms /tmp/hope-lms
+# Package the chart into /data/chart.
+#
+# The layout here is dictated by create_manifests.sh in the base image, which
+# only finds archives matching *.tar.gz and then renders "<extracted>/chart".
+# A `helm package` archive satisfies neither: it is named *.tgz and its root
+# directory is the chart name. Both must match or the deployer renders nothing.
+# This mirrors what the deployer_helm/onbuild variant's ONBUILD triggers do.
+COPY hope-lms /tmp/chart
 RUN mkdir -p /data/chart \
-    && helm package /tmp/hope-lms --destination /data/chart \
-    && rm -rf /tmp/hope-lms
+    && tar -czf /data/chart/chart.tar.gz -C /tmp chart \
+    && rm -rf /tmp/chart
 
 # The parameter schema the Marketplace UI collects values against.
 COPY schema.yaml /data/schema.yaml
+
+# ── Automated test deployment (TEST_K8S_APP_FUNCTIONALITY) ───────────────────
+# deploy_with_tests.sh overlays /data-test/schema.yaml onto the real schema and
+# /data-test/chart onto the real chart. Marketplace's verification supplies only
+# name and namespace, so without the schema overlay the deployer aborts on the
+# first required property it cannot resolve. The chart overlay supplies the
+# ephemeral Postgres and Redis that the API's migration init container needs.
+#
+# The test archive MUST use the same file name as the production one: the
+# overlay is matched by extracted path, and the path is derived from the archive
+# name.
+COPY apptest/deployer/schema.yaml /data-test/schema.yaml
+COPY apptest/deployer/chart /tmp/chart
+RUN mkdir -p /data-test/chart \
+    && tar -czf /data-test/chart/chart.tar.gz -C /tmp chart \
+    && rm -rf /tmp/chart
+
+# Throwaway service keypairs for the test deployment only — see the script for
+# why they are generated here rather than committed.
+COPY apptest/deployer/inject-test-keys.sh /tmp/inject-test-keys.sh
+RUN bash /tmp/inject-test-keys.sh /data-test/schema.yaml \
+    && rm -f /tmp/inject-test-keys.sh
+
+# The verification license. Supplied at build time so no entitlement is
+# committed to the repository:
+#   docker build --build-arg APPTEST_LICENSE_KEY="$(cat license.txt)" ...
+# Left empty the deployer still installs, but the API exits during boot because
+# license enforcement is on for every Marketplace install.
+ARG APPTEST_LICENSE_KEY=""
+RUN python3 -c "import os, pathlib; p = pathlib.Path('/data-test/schema.yaml'); p.write_text(p.read_text().replace('__APPTEST_LICENSE_KEY__', os.environ.get('APPTEST_LICENSE_KEY', '')))" \
+    && if [ -z "${APPTEST_LICENSE_KEY}" ]; then \
+         echo "WARNING: built without APPTEST_LICENSE_KEY. Installing and rendering are unaffected, but Marketplace's automated test deployment will abort on the required license.key property."; \
+       fi

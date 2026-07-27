@@ -23,7 +23,8 @@ on the product's Cloud Marketplace listing.
 | `schema.yaml`         | Marketplace parameter schema (mounted at `/data/schema.yaml`)      |
 | `Dockerfile.deployer` | Builds the deployer image (Helm base image + chart + schema)       |
 | `Dockerfile.tester`   | Builds the optional `mpdev verify` smoke-test image                |
-| `apptest/`            | Post-deploy health checks run by the tester image                  |
+| `apptest/tester/`     | Post-deploy health checks run by the tester image                  |
+| `apptest/deployer/`   | Overlay used only by Marketplace's automated test deployment       |
 | `LICENSE` / `NOTICE`  | Apache License 2.0 terms for the contents of this repository       |
 
 The two Dockerfiles are here for transparency and for customers who prefer to

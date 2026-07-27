@@ -1,0 +1,32 @@
+# Chart value overrides for the automated test deployment, merged over the
+# production chart's values.yaml by overlay_test_files.py.
+#
+# Only values that are NOT Marketplace properties belong here. Anything
+# declared in schema.yaml is passed to `helm template --values` from the
+# expanded schema and therefore overrides this file — those go in the test
+# schema overlay instead.
+
+# One replica each. The production default of two exists to satisfy the
+# availability posture of a real install; in the verification cluster it only
+# doubles the scheduling footprint and the time to reach a ready state.
+api:
+  replicas: 1
+web:
+  replicas: 1
+agentEngine:
+  replicas: 1
+a2f3dEngine:
+  replicas: 1
+
+# Connection details for the ephemeral dependencies in
+# templates/apptest-dependencies.yaml. The API and engines read the URLs from
+# the test schema overlay; these values only configure the servers themselves,
+# so they stay together in one place.
+apptest:
+  postgres:
+    image: postgres:16-alpine
+    user: hope
+    password: apptest-not-a-secret
+    database: hope_lms
+  redis:
+    image: redis:7-alpine

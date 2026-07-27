@@ -1,0 +1,130 @@
+# Test-deployment schema overlay, baked into the deployer at
+# /data-test/schema.yaml and applied by the base image's deploy_with_tests.sh
+# during Marketplace's TEST_K8S_APP_FUNCTIONALITY check.
+#
+# Marketplace's verification harness passes only `name` and `namespace`. Every
+# other required property has to resolve to something here or the deployer
+# aborts in expand_config.py before it renders anything.
+#
+# Two constraints govern what this file may contain:
+#
+#   1. overlay_test_schema.py replaces each property wholesale and refuses to
+#      change a property's x-google-marketplace type. Masked properties must
+#      therefore stay masked.
+#   2. Values declared here beat the chart's own values.yaml, because the
+#      expanded schema values are passed to `helm template --values`. Anything
+#      that must differ for a test deployment belongs here, not in the chart
+#      overlay.
+#
+# These values describe a self-contained, throwaway install: in-cluster
+# Postgres and Redis (see the chart overlay), no Workload Identity, and
+# unreachable KMS keys. They are never used for a customer deployment.
+properties:
+  # Any non-empty project is fine. The API requires it under
+  # NODE_ENV=production but never has to resolve it, because every secret it
+  # would look up in Secret Manager is supplied directly below.
+  gcp.projectId:
+    type: string
+    default: hope-lms-apptest
+
+  # Ordinary strings; the verification cluster has no ingress or DNS, so these
+  # only have to be well-formed absolute URLs.
+  domains.appUrl:
+    type: string
+    default: https://web.apptest.invalid
+  domains.corsOrigin:
+    type: string
+    default: https://web.apptest.invalid
+  domains.jwtIssuer:
+    type: string
+    default: https://api.apptest.invalid
+  domains.jwtAudience:
+    type: string
+    default: https://web.apptest.invalid
+  domains.cookieDomain:
+    type: string
+    default: apptest.invalid
+  domains.brandingAssetPublicBaseUrl:
+    type: string
+    default: https://api.apptest.invalid
+
+  # Syntactically valid but deliberately unresolvable. The startup config
+  # schema rejects empty KMS settings whenever NODE_ENV=production, while
+  # KmsService downgrades a failed key pre-warm to a warning — so a path that
+  # cannot be reached satisfies both without needing a real key ring. Signing
+  # a token would fail, which the smoke test does not do.
+  kms.jwtKmsKeyVersion:
+    type: string
+    default: projects/hope-lms-apptest/locations/us/keyRings/apptest/cryptoKeys/jwt-signing/cryptoKeyVersions/1
+  kms.authDataKmsKey:
+    type: string
+    default: projects/hope-lms-apptest/locations/us/keyRings/apptest/cryptoKeys/auth-data
+
+  # Empty on purpose: a Workload Identity annotation naming a service account
+  # that has no binding in Google's verification project would make every GCP
+  # client fail slowly rather than fail fast.
+  serviceAccounts.apiGsa:
+    type: string
+    default: ''
+  serviceAccounts.agentEngineGsa:
+    type: string
+    default: ''
+
+  # The ephemeral dependencies the chart overlay adds to the test namespace.
+  secrets.databaseUrl:
+    type: string
+    default: postgresql://hope:apptest-not-a-secret@apptest-postgres:5432/hope_lms?sslmode=disable
+    x-google-marketplace:
+      type: MASKED_FIELD
+  secrets.redisUrl:
+    type: string
+    default: redis://apptest-redis:6379/0
+    x-google-marketplace:
+      type: MASKED_FIELD
+
+  # Replaced during the deployer build with a freshly generated throwaway
+  # keypair; see the key-generation step in Dockerfile.deployer. These must be
+  # non-empty even though the smoke test never exercises service-to-service
+  # calls, because the API's secret loader treats an empty variable as absent
+  # and then fails closed on an unreachable Secret Manager.
+  secrets.internalSvcJwtPrivateKey:
+    type: string
+    default: __APPTEST_INTERNAL_SVC_PRIVATE_KEY__
+    x-google-marketplace:
+      type: MASKED_FIELD
+  secrets.internalSvcJwtPublicKey:
+    type: string
+    default: __APPTEST_INTERNAL_SVC_PUBLIC_KEY__
+    x-google-marketplace:
+      type: MASKED_FIELD
+  secrets.agentEngineCallbackJwtPublicKey:
+    type: string
+    default: __APPTEST_CALLBACK_PUBLIC_KEY__
+    x-google-marketplace:
+      type: MASKED_FIELD
+  secrets.apiCallbackJwtPrivateKey:
+    type: string
+    default: __APPTEST_CALLBACK_PRIVATE_KEY__
+    x-google-marketplace:
+      type: MASKED_FIELD
+
+  # Substituted from the APPTEST_LICENSE_KEY build argument. License
+  # enforcement is on for every Marketplace install and cannot be switched off
+  # from the chart, so a short-lived verification license has to be baked in
+  # for the automated test deployment to reach a ready state.
+  license.key:
+    type: string
+    default: __APPTEST_LICENSE_KEY__
+    x-google-marketplace:
+      type: MASKED_FIELD
+
+  # No NVIDIA NIM exists in the verification cluster. The engine starts and
+  # serves its health endpoint regardless; it only dials the NIM when a session
+  # begins. 'disabled' additionally avoids mounting an mTLS secret with no
+  # certificates in it.
+  a2f3d.nimUrl:
+    type: string
+    default: apptest-no-nim.invalid:52000
+  a2f3d.nimSecureMode:
+    type: string
+    default: disabled
