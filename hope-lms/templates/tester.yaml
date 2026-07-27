@@ -10,14 +10,14 @@ It must be a Pod. run_tester.py skips every other kind and polls status.phase,
 so a Job would be reported as skipped and the check would pass without ever
 testing anything.
 
-The API image is used deliberately rather than the published tester image: our
-Marketplace registry is private, so the verification cluster cannot pull from
-it, whereas Marketplace re-publishes every declared image (this one included)
-somewhere the cluster is entitled to. The image already carries wget.
+It runs the API image deliberately. Our Marketplace registry is private, so the
+verification cluster cannot pull from it, whereas Marketplace re-publishes every
+declared image — this one included — somewhere the cluster is entitled to. The
+image already carries wget, so the checks need nothing else.
 
-Note that this Pod, not the separately published tester image, is what both
-Marketplace's verification and `mpdev verify` actually execute — nothing
-references that image.
+This Pod is the whole smoke test. A standalone tester image used to be published
+for the same purpose, but nothing ever referenced it, so it was removed (ADR
+0029).
 */}}
 apiVersion: v1
 kind: Pod

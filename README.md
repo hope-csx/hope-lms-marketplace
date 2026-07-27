@@ -2,7 +2,7 @@
 
 This repository contains the **deployment configuration** for installing
 [HOPE LMS](https://www.cornerstonex.ai) from Google Cloud Marketplace: the
-Helm chart, the Marketplace parameter schema, and the deployer/tester
+Helm chart, the Marketplace parameter schema, and the deployer's
 container build files. It does **not** contain the HOPE LMS application
 source code — the application itself is proprietary and is distributed
 exclusively as container images through Cloud Marketplace. See
@@ -22,18 +22,15 @@ on the product's Cloud Marketplace listing.
 | `hope-lms/`           | Helm chart rendered by the deployer at install time                |
 | `schema.yaml`         | Marketplace parameter schema (mounted at `/data/schema.yaml`)      |
 | `Dockerfile.deployer` | Builds the deployer image (Helm base image + chart + schema)       |
-| `Dockerfile.tester`   | Builds a standalone image of the health checks, for running by hand |
-| `apptest/tester/`     | The health-check script that image runs                             |
 | `apptest/deployer/`   | Overlay used only by Marketplace's automated test deployment        |
 | `LICENSE` / `NOTICE`  | Apache License 2.0 terms for the contents of this repository       |
 
-The two Dockerfiles are here for transparency and for customers who prefer to
-rebuild the deployer and tester images themselves; a normal install uses the
-pre-built `deployer` image published to the registry below and never builds
-anything. Note that both builds apply operating-system security updates as they
-run, so they need to reach the Ubuntu and Alpine package mirrors — build them on
-a connected host and mirror the results if your install environment is
-disconnected.
+`Dockerfile.deployer` is here for transparency and for customers who prefer to
+rebuild the deployer image themselves; a normal install uses the pre-built
+`deployer` image published to the registry below and never builds anything. Note
+that the build applies operating-system security updates as it runs, so it needs
+to reach the Ubuntu package mirrors — build it on a connected host and mirror the
+result if your install environment is disconnected.
 
 `apptest/deployer/` supports Marketplace's own release verification, not your
 install. `mpdev install`, documented below, ignores it entirely. `mpdev verify`
@@ -71,7 +68,6 @@ segment — the other images are siblings beneath it:
 | `agent-engine`           | `.../hope-mtp/hope-lms/agent-engine`                          |
 | `a2f3d-engine`           | `.../hope-mtp/hope-lms/a2f3d-engine`                          |
 | `deployer`               | `.../hope-mtp/hope-lms/deployer`                              |
-| `tester`                 | `.../hope-mtp/hope-lms/tester`                                |
 
 Each is tagged with both the release track (`0.1`) and the exact version
 (`0.1.0`). When Marketplace installs the app it re-publishes these images into
@@ -317,7 +313,7 @@ CornerstoneX representative.
 
 ## License
 
-The contents of this repository (Helm chart, schema, and deployer/tester
+The contents of this repository (Helm chart, schema, and the deployer's
 build files) are licensed under the [Apache License 2.0](LICENSE). See
 [NOTICE](NOTICE) for how this applies alongside the separate HOPE LMS
 commercial license that governs the application itself.

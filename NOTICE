@@ -8,7 +8,7 @@ Scope of this repository
 -------------------------
 This repository contains only the deployment configuration required to
 install HOPE LMS from Google Cloud Marketplace via the command line: the
-Helm chart, the Marketplace parameter schema, the deployer/tester container
+Helm chart, the Marketplace parameter schema, the deployer's container
 build files, and this documentation. It does not contain the HOPE LMS
 application source code, which remains proprietary to CornerstoneX and is
 distributed exclusively as container images through Google Cloud Marketplace
