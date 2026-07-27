@@ -13,9 +13,11 @@ testing anything.
 The API image is used deliberately rather than the published tester image: our
 Marketplace registry is private, so the verification cluster cannot pull from
 it, whereas Marketplace re-publishes every declared image (this one included)
-somewhere the cluster is entitled to. The image already carries wget. The
-standalone tester image remains for running `mpdev verify` by hand, where the
-operator does have registry credentials.
+somewhere the cluster is entitled to. The image already carries wget.
+
+Note that this Pod, not the separately published tester image, is what both
+Marketplace's verification and `mpdev verify` actually execute — nothing
+references that image.
 */}}
 apiVersion: v1
 kind: Pod

@@ -18,7 +18,9 @@ x-google-marketplace:
     recommended: true
 
   # Deployer uses the Helm base image; the chart lives at
-  # /data/chart/hope-lms.tar.gz inside the deployer image.
+  # /data/chart/chart.tar.gz inside the deployer image. Both the archive name
+  # and its inner directory name are dictated by the base image — see the
+  # packaging step in Dockerfile.deployer.
   managedUpdates:
     kalmSupported: false
 

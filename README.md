@@ -22,9 +22,9 @@ on the product's Cloud Marketplace listing.
 | `hope-lms/`           | Helm chart rendered by the deployer at install time                |
 | `schema.yaml`         | Marketplace parameter schema (mounted at `/data/schema.yaml`)      |
 | `Dockerfile.deployer` | Builds the deployer image (Helm base image + chart + schema)       |
-| `Dockerfile.tester`   | Builds the optional `mpdev verify` smoke-test image                |
-| `apptest/tester/`     | Post-deploy health checks run by the tester image                  |
-| `apptest/deployer/`   | Overlay used only by Marketplace's automated test deployment       |
+| `Dockerfile.tester`   | Builds a standalone image of the health checks, for running by hand |
+| `apptest/tester/`     | The health-check script that image runs                             |
+| `apptest/deployer/`   | Overlay used only by Marketplace's automated test deployment        |
 | `LICENSE` / `NOTICE`  | Apache License 2.0 terms for the contents of this repository       |
 
 The two Dockerfiles are here for transparency and for customers who prefer to
@@ -34,6 +34,12 @@ anything. Note that both builds apply operating-system security updates as they
 run, so they need to reach the Ubuntu and Alpine package mirrors — build them on
 a connected host and mirror the results if your install environment is
 disconnected.
+
+`apptest/deployer/` supports Marketplace's own release verification, not your
+install. `mpdev install`, documented below, ignores it entirely. `mpdev verify`
+does not: it installs in test mode, which substitutes throwaway settings and
+in-cluster Postgres and Redis, so use it to sanity-check a rebuilt deployer
+rather than to validate a real deployment.
 
 ## Overview
 
