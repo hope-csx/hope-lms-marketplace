@@ -26,6 +26,14 @@ on the product's Cloud Marketplace listing.
 | `apptest/`            | Post-deploy health checks run by the tester image                  |
 | `LICENSE` / `NOTICE`  | Apache License 2.0 terms for the contents of this repository       |
 
+The two Dockerfiles are here for transparency and for customers who prefer to
+rebuild the deployer and tester images themselves; a normal install uses the
+pre-built `deployer` image published to the registry below and never builds
+anything. Note that both builds apply operating-system security updates as they
+run, so they need to reach the Ubuntu and Alpine package mirrors — build them on
+a connected host and mirror the results if your install environment is
+disconnected.
+
 ## Overview
 
 Installing HOPE LMS deploys four workloads into a single namespace on your

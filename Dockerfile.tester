@@ -8,8 +8,12 @@
 # NOTE: keep this tag in sync with MARKETPLACE_TOOLS_TAG in Dockerfile.deployer.
 FROM gcr.io/cloud-marketplace-tools/k8s/deployer_helm:13.0.4 AS tools
 
-FROM alpine:3.20
-RUN apk add --no-cache bash curl ca-certificates
+# Alpine 3.20 reached end of support in 2026 and no longer receives security
+# updates, so the tester tracks a supported release and upgrades on build.
+# FedRAMP SI-2.
+FROM alpine:3.23
+RUN apk upgrade --no-cache \
+    && apk add --no-cache bash curl ca-certificates
 COPY apptest/tester/smoke-test.sh /tests/smoke-test.sh
 RUN chmod +x /tests/smoke-test.sh
 ENTRYPOINT ["/tests/smoke-test.sh"]
