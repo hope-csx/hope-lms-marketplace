@@ -209,7 +209,7 @@ properties:
     type: string
     x-google-marketplace:
       type: GENERATED_PASSWORD
-      generatedProperties:
+      generatedPassword:
         length: 48
         includeSymbols: false
         base64: true
@@ -217,7 +217,7 @@ properties:
     type: string
     x-google-marketplace:
       type: GENERATED_PASSWORD
-      generatedProperties:
+      generatedPassword:
         length: 48
         includeSymbols: false
         base64: true
@@ -225,7 +225,7 @@ properties:
     type: string
     x-google-marketplace:
       type: GENERATED_PASSWORD
-      generatedProperties:
+      generatedPassword:
         length: 48
         includeSymbols: false
         base64: true
@@ -233,7 +233,7 @@ properties:
     type: string
     x-google-marketplace:
       type: GENERATED_PASSWORD
-      generatedProperties:
+      generatedPassword:
         length: 48
         includeSymbols: false
         base64: true
