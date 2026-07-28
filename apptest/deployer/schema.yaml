@@ -120,11 +120,13 @@ properties:
 
   # No NVIDIA NIM exists in the verification cluster. The engine starts and
   # serves its health endpoint regardless; it only dials the NIM when a session
-  # begins. 'disabled' additionally avoids mounting an mTLS secret with no
-  # certificates in it.
+  # begins, so an unresolvable endpoint is fine here.
+  #
+  # nimSecureMode is deliberately NOT overridden. It has to stay at the chart
+  # default of 'mtls': the engine rejects 'disabled' unless APP_ENV is
+  # development or test, and the chart pins APP_ENV=production. Only the
+  # certificate *paths* are validated at startup, and the chart sets those
+  # whenever the mode is mtls, so the empty PEMs below satisfy boot.
   a2f3d.nimUrl:
     type: string
     default: apptest-no-nim.invalid:52000
-  a2f3d.nimSecureMode:
-    type: string
-    default: disabled

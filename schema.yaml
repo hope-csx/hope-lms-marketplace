@@ -258,14 +258,38 @@ properties:
     title: NVIDIA NIM endpoint
     description: gRPC endpoint of your NVIDIA Audio2Face-3D NIM. Not shipped or managed by this app.
     default: nim-a2f3d.hope-lms.svc.cluster.local:52000
+  # 'disabled' is deliberately not offered. The chart runs the engine with
+  # APP_ENV=production, and the engine refuses to start with an unauthenticated
+  # NIM connection in that mode, so offering it here would hand out a
+  # configuration that crash-loops on first deploy.
   a2f3d.nimSecureMode:
     type: string
     title: NIM transport security
-    description: Use 'mtls' to authenticate to the NIM with client certificates, or 'disabled'.
-    default: disabled
+    description: Authenticate to the NIM with client certificates. Supply the certificates below.
+    default: mtls
     enum:
-      - disabled
       - mtls
+  # Left empty the engine still starts; it fails when it first dials the NIM.
+  # They are not in `required` because the avatar tier is optional — a customer
+  # deploying without a NIM has no certificates to supply.
+  a2f3d.nimMtls.rootCaPem:
+    type: string
+    title: NIM root CA certificate (PEM)
+    description: CA certificate that signed your NVIDIA Audio2Face-3D NIM server certificate.
+    x-google-marketplace:
+      type: MASKED_FIELD
+  a2f3d.nimMtls.clientCertPem:
+    type: string
+    title: NIM client certificate (PEM)
+    description: Client certificate the avatar engine presents to your NIM.
+    x-google-marketplace:
+      type: MASKED_FIELD
+  a2f3d.nimMtls.clientKeyPem:
+    type: string
+    title: NIM client private key (PEM)
+    description: Private key for the client certificate above.
+    x-google-marketplace:
+      type: MASKED_FIELD
 
   # ── Feature toggles ─────────────────────────────────────────────────────────
   seedOnBoot:

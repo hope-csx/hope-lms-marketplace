@@ -88,24 +88,32 @@ spec:
             limits:
               cpu: '500m'
               memory: '512Mi'
+          # '/' redirects to the login page and kubelet follows the redirect,
+          # so each probe pays for a server-rendered page. The default
+          # timeoutSeconds of 1 is not enough for that render on the 100m CPU
+          # request above once a node is busy, which shows up as
+          # "context deadline exceeded" rather than a crash.
           startupProbe:
             httpGet:
               path: /
               port: 3000
             failureThreshold: 30
             periodSeconds: 10
+            timeoutSeconds: 5
           readinessProbe:
             httpGet:
               path: /
               port: 3000
             periodSeconds: 10
             failureThreshold: 3
+            timeoutSeconds: 5
           livenessProbe:
             httpGet:
               path: /
               port: 3000
             periodSeconds: 30
             failureThreshold: 3
+            timeoutSeconds: 5
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: false

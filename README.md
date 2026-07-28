@@ -304,7 +304,7 @@ the deployment entirely.
 | API fails at boot with a KMS or permission error | KMS key path wrong, or the API GSA lacks signer/decrypter roles | Verify `kms.jwtKmsKeyVersion` / `kms.authDataKmsKey` and the Workload Identity binding |
 | API cannot reach the database or Redis | Wrong connection URL, or the cluster subnet can't reach the instance | Check `secrets.databaseUrl` / `secrets.redisUrl` and VPC/firewall/private-service-access |
 | Login fails or CORS errors in the browser | Domain parameters disagree with actual hostnames | Align `domains.*` with your DNS and re-deploy |
-| Avatar/voice features unavailable | No reachable NVIDIA NIM configured | Set `a2f3d.nimUrl` (and `a2f3d.nimSecureMode`) to your NIM |
+| Avatar/voice features unavailable | No reachable NVIDIA NIM configured | Set `a2f3d.nimUrl` to your NIM and supply the three `a2f3d.nimMtls.*` certificates |
 
 ## Support
 

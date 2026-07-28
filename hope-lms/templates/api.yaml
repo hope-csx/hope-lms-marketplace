@@ -159,24 +159,30 @@ spec:
             limits:
               cpu: '500m'
               memory: '512Mi'
+          # /health round-trips to the database, so the default timeoutSeconds
+          # of 1 is not enough on the 100m CPU request above once a node is
+          # busy — the probe reports a timeout while the API is healthy.
           startupProbe:
             httpGet:
               path: /health
               port: 3001
             failureThreshold: 30
             periodSeconds: 10
+            timeoutSeconds: 5
           readinessProbe:
             httpGet:
               path: /health
               port: 3001
             periodSeconds: 10
             failureThreshold: 3
+            timeoutSeconds: 5
           livenessProbe:
             httpGet:
               path: /health
               port: 3001
             periodSeconds: 30
             failureThreshold: 3
+            timeoutSeconds: 5
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
