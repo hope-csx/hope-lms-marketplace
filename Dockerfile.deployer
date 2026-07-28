@@ -29,6 +29,27 @@ RUN apt-get update \
     && apt-get upgrade -y \
     && rm -rf /var/lib/apt/lists/*
 
+# ── Readiness budget ────────────────────────────────────────────────────────
+# deploy.sh waits ${WAIT_FOR_READY_TIMEOUT:-300} seconds for the install to come
+# up, and neither Marketplace's verification nor mpdev sets that variable. 300s
+# does not cover a cold cluster: nothing starts until the node has pulled this
+# release's images, the API then applies the schema migrations before its own
+# container is allowed to start, and only then does the readiness probe have
+# something to talk to. Failing at five minutes reports a healthy install as
+# broken. Raised here rather than in the chart because it governs the deployer,
+# not the workloads.
+ENV WAIT_FOR_READY_TIMEOUT=900
+
+# ── Failure diagnostics ─────────────────────────────────────────────────────
+# The stock readiness wait reports only that the deadline passed. Marketplace
+# runs the test deployment in a namespace we never see and deletes it when the
+# task ends, so without this a failed verification is unattributable. The
+# replacement runs the original and, on failure only, appends the status and
+# logs of whichever container did not come up.
+RUN mv /bin/wait_for_ready.py /bin/wait_for_ready_real.py
+COPY deployer/wait-for-ready.py /bin/wait_for_ready.py
+RUN chmod 0755 /bin/wait_for_ready.py /bin/wait_for_ready_real.py
+
 # Package the chart into /data/chart.
 #
 # The layout here is dictated by create_manifests.sh in the base image, which

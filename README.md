@@ -23,6 +23,7 @@ on the product's Cloud Marketplace listing.
 | `schema.yaml`         | Marketplace parameter schema (mounted at `/data/schema.yaml`)      |
 | `Dockerfile.deployer` | Builds the deployer image (Helm base image + chart + schema)       |
 | `apptest/deployer/`   | Overlay used only by Marketplace's automated test deployment        |
+| `deployer/`           | Readiness wait that reports which container blocked a failed install |
 | `LICENSE` / `NOTICE`  | Apache License 2.0 terms for the contents of this repository       |
 
 `Dockerfile.deployer` is here for transparency and for customers who prefer to
@@ -305,6 +306,12 @@ the deployment entirely.
 | API cannot reach the database or Redis | Wrong connection URL, or the cluster subnet can't reach the instance | Check `secrets.databaseUrl` / `secrets.redisUrl` and VPC/firewall/private-service-access |
 | Login fails or CORS errors in the browser | Domain parameters disagree with actual hostnames | Align `domains.*` with your DNS and re-deploy |
 | Avatar/voice features unavailable | No reachable NVIDIA NIM configured | Set `a2f3d.nimUrl` to your NIM and supply the three `a2f3d.nimMtls.*` certificates |
+| Install reports that the application did not become ready | One workload never started; on a cold cluster the images alone are ~4.6 GB | The deployer allows 15 minutes and then prints the status and log tail of every pod that is not ready — read that first. `kubectl logs job/<name>-deployer -n <namespace>` has the full output |
+
+The API applies database migrations in an init container before its own container
+is allowed to start, and waits up to 10 minutes for the database to accept
+queries (`MIGRATE_DB_WAIT_SECONDS`). A first install on a cold cluster therefore
+takes several minutes before any pod reports ready; this is expected.
 
 ## Support
 
