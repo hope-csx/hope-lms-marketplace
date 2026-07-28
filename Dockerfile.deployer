@@ -66,13 +66,12 @@ COPY apptest/deployer/inject-test-keys.sh /tmp/inject-test-keys.sh
 RUN bash /tmp/inject-test-keys.sh /data-test/schema.yaml \
     && rm -f /tmp/inject-test-keys.sh
 
-# The verification license. Supplied at build time so no entitlement is
-# committed to the repository:
-#   docker build --build-arg APPTEST_LICENSE_KEY="$(cat license.txt)" ...
-# Left empty the deployer still installs, but the API exits during boot because
-# license enforcement is on for every Marketplace install.
-ARG APPTEST_LICENSE_KEY=""
-RUN python3 -c "import os, pathlib; p = pathlib.Path('/data-test/schema.yaml'); p.write_text(p.read_text().replace('__APPTEST_LICENSE_KEY__', os.environ.get('APPTEST_LICENSE_KEY', '')))" \
-    && if [ -z "${APPTEST_LICENSE_KEY}" ]; then \
-         echo "WARNING: built without APPTEST_LICENSE_KEY. Installing and rendering are unaffected, but Marketplace's automated test deployment will abort on the required license.key property."; \
-       fi
+# The verification license, passed as a BuildKit secret so that no entitlement
+# is committed to the repository and none is recorded in the image history:
+#   docker build --secret id=apptest_license,src=license.txt ...
+# Omit the secret and the deployer still builds and installs, but the API exits
+# during boot because license enforcement is on for every Marketplace install.
+COPY apptest/deployer/inject-test-license.sh /tmp/inject-test-license.sh
+RUN --mount=type=secret,id=apptest_license \
+    bash /tmp/inject-test-license.sh /data-test/schema.yaml \
+    && rm -f /tmp/inject-test-license.sh
