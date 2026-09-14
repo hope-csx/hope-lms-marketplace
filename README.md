@@ -1,37 +1,48 @@
-# HOPE LMS — Google Cloud Marketplace deployment assets
+# HOPE MTP — Google Cloud Marketplace deployment assets
 
 This repository contains the **deployment configuration** for installing
-[HOPE LMS](https://www.cornerstonex.ai) from Google Cloud Marketplace: the
-Helm chart, the Marketplace parameter schema, and the deployer's
-container build files. It does **not** contain the HOPE LMS application
-source code — the application itself is proprietary and is distributed
-exclusively as container images through Cloud Marketplace. See
-[NOTICE](NOTICE) for the license scope.
+[HOPE MTP](https://www.cornerstonex.ai) — the Metahuman Training Platform
+bundled with the HOPE Metahuman Service it runs on — from Google Cloud
+Marketplace: the Helm chart (with the HOPE Metahuman Service chart vendored
+as a subchart), the Marketplace parameter schema, and the deployer's container
+build files. It does **not** contain application source code — both
+applications are proprietary and are distributed exclusively as container
+images through Cloud Marketplace. See [NOTICE](NOTICE) for the license scope.
 
-This guide covers deploying HOPE LMS from a **command-line interface**
+This guide covers deploying from a **command-line interface**
 (`kubectl` / `helm` / [`mpdev`](https://github.com/GoogleCloudPlatform/marketplace-k8s-app-tools)),
 as an alternative to the guided flow in the Google Cloud Console. For the
 Console flow, prerequisites, and the full parameter reference, see the
-[Deployment & Configuration Guide](https://console.cloud.google.com/marketplace/product/cornerstonex-public/hope-lms)
-on the product's Cloud Marketplace listing.
+[Deployment & Configuration Guide](docs/deploy-guide.html) in this repository
+or on the product's
+[Cloud Marketplace listing](https://console.cloud.google.com/marketplace/product/cornerstonex-public/hope-lms).
+
+> **Version 0.2 is a new application generation.** It replaces the 0.1.x
+> "HOPE LMS" releases with a bundle of two products, and image names,
+> parameter names and Kubernetes resource names changed. A 0.1.x install must
+> be removed before 0.2 is installed into the same namespace; see
+> [Upgrading from 0.1.x](#upgrading-from-01x).
 
 ## Contents
 
-| Path                  | Purpose                                                          |
-| --------------------- | ----------------------------------------------------------------- |
-| `hope-lms/`           | Helm chart rendered by the deployer at install time                |
-| `schema.yaml`         | Marketplace parameter schema (mounted at `/data/schema.yaml`)      |
-| `Dockerfile.deployer` | Builds the deployer image (Helm base image + chart + schema)       |
-| `apptest/deployer/`   | Overlay used only by Marketplace's automated test deployment        |
-| `deployer/`           | Readiness wait that reports which container blocked a failed install |
-| `LICENSE` / `NOTICE`  | Apache License 2.0 terms for the contents of this repository       |
+| Path                                      | Purpose                                                                        |
+| ----------------------------------------- | ------------------------------------------------------------------------------ |
+| `hope-lms/`                               | Umbrella Helm chart rendered by the deployer at install time                   |
+| `hope-lms/charts/hope-metahuman-service/` | The HOPE Metahuman Service chart, vendored from the commit in `HOPE_REF`       |
+| `HOPE_REF`                                | The HOPE Metahuman Service commit this release's chart and images come from    |
+| `schema.yaml`                             | Marketplace parameter schema (mounted at `/data/schema.yaml`)                  |
+| `Dockerfile.deployer`                     | Builds the deployer image (Helm base image + chart + schema)                   |
+| `apptest/deployer/`                       | Overlay used only by Marketplace's automated test deployment                   |
+| `deployer/`                               | Readiness wait that reports which container blocked a failed install           |
+| `docs/deploy-guide.html`                  | Customer-facing Deployment & Configuration Guide (self-contained HTML)         |
+| `LICENSE` / `NOTICE`                      | Apache License 2.0 terms for the contents of this repository                   |
 
 `Dockerfile.deployer` is here for transparency and for customers who prefer to
 rebuild the deployer image themselves; a normal install uses the pre-built
-`deployer` image published to the registry below and never builds anything. Note
-that the build applies operating-system security updates as it runs, so it needs
-to reach the Ubuntu package mirrors — build it on a connected host and mirror the
-result if your install environment is disconnected.
+`deployer` image published to the registry below and never builds anything. The
+build applies operating-system security updates and rebuilds `helm` and
+`kubectl` from source as it runs, so it needs internet access — build it on a
+connected host and mirror the result if your install environment is disconnected.
 
 `apptest/deployer/` supports Marketplace's own release verification, not your
 install. `mpdev install`, documented below, ignores it entirely. `mpdev verify`
@@ -41,45 +52,68 @@ rather than to validate a real deployment.
 
 ## Overview
 
-Installing HOPE LMS deploys four workloads into a single namespace on your
-GKE cluster:
+Installing HOPE MTP deploys two products into a single namespace on your GKE
+cluster:
 
-- **web** — the Next.js browser application users sign in to.
-- **api** — the NestJS backend. This is the license-enforcement point; it
-  will not start without a valid, unexpired license.
-- **agent-engine** — the AI tier that drives training scenarios (reaches
-  Vertex AI via Private Google Access).
-- **a2f3d-engine** — the Audio2Face-3D bridge that connects to your
-  customer-supplied NVIDIA NIM.
+**The Metahuman Training Platform**
 
-All data is stored in Cloud SQL (PostgreSQL 16) and Memorystore for Redis,
-which you provision in your own project. Nothing in HOPE LMS calls out to
-the public internet, so it runs correctly in a tenant with no egress.
+- **mtp-web** — the learner, author and administrator portal.
+- **mtp-api** — the control plane and sole owner of the MTP database. A
+  license-enforcement point; it will not start without a valid, unexpired
+  license.
+- **mtp-session-gateway** — the WebSocket broker for live training sessions.
+- **mtp-assessment-engine**, **mtp-curriculum-engine** — the inference tier
+  (Vertex AI via Private Google Access).
+- **qdrant** — an in-cluster vector store (StatefulSet + PersistentVolumeClaim)
+  used by the curriculum engine.
+
+**The HOPE Metahuman Service**
+
+- **api** — the HOPE backend; the second license-enforcement point.
+- **admin-web** — the HOPE administration portal.
+- **agent-engine** — the conversational AI tier (Vertex AI).
+- **a2f3d-engine** — the Audio2Face-3D bridge to your customer-supplied NVIDIA NIM.
+- **avatar-bridge** — optional, only when live Premium avatars are enabled.
+
+All durable state except the vector index lives in Cloud SQL (PostgreSQL 16,
+**two databases** — one per product) and Memorystore for Redis, which you
+provision in your own project. Nothing calls out to the public internet, so the
+bundle runs correctly in a tenant with no egress.
 
 ## Registry layout
 
-Every image is published under a single product root path. Note that `api` is
+Every image is published under a single product root path. The MTP `api` is
 the **primary image** and therefore lives at that root itself, with no name
 segment — the other images are siblings beneath it:
 
-| Image                    | Path                                                          |
-| ------------------------ | ------------------------------------------------------------- |
-| `api` (product root)     | `us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms`     |
-| `web`                    | `.../hope-mtp/hope-lms/web`                                   |
-| `agent-engine`           | `.../hope-mtp/hope-lms/agent-engine`                          |
-| `a2f3d-engine`           | `.../hope-mtp/hope-lms/a2f3d-engine`                          |
-| `deployer`               | `.../hope-mtp/hope-lms/deployer`                              |
+| Image                            | Path                                                                |
+| -------------------------------- | ------------------------------------------------------------------- |
+| MTP `api` (product root)         | `us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms`           |
+| MTP `web`                        | `.../hope-mtp/hope-lms/web`                                         |
+| MTP `session-gateway`            | `.../hope-mtp/hope-lms/session-gateway`                             |
+| MTP `assessment-engine`          | `.../hope-mtp/hope-lms/assessment-engine`                           |
+| MTP `curriculum-engine`          | `.../hope-mtp/hope-lms/curriculum-engine`                           |
+| `qdrant`                         | `.../hope-mtp/hope-lms/qdrant`                                      |
+| HOPE `api`                       | `.../hope-mtp/hope-lms/hope-api`                                    |
+| HOPE `admin-web`                 | `.../hope-mtp/hope-lms/hope-admin-web`                              |
+| HOPE `agent-engine`              | `.../hope-mtp/hope-lms/hope-agent-engine`                           |
+| HOPE `a2f3d-engine`              | `.../hope-mtp/hope-lms/hope-a2f3d-engine`                           |
+| HOPE `avatar-bridge`             | `.../hope-mtp/hope-lms/hope-avatar-bridge`                          |
+| HOPE `workflow-runner`           | `.../hope-mtp/hope-lms/hope-workflow-runner` (declared, not deployed) |
+| `deployer`                       | `.../hope-mtp/hope-lms/deployer`                                    |
 
-Each is tagged with both the release track (`0.1`) and the exact version
-(`0.1.0`). When Marketplace installs the app it re-publishes these images into
+Each is tagged with both the release track (`0.2`) and the exact version
+(`0.2.0`). When Marketplace installs the app it re-publishes these images into
 its own registry and rewrites the chart's image values accordingly, so the
 paths above matter only if you are mirroring images into an internal registry
 for a disconnected install:
 
 ```bash
 export ROOT=us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms
-for img in "" /web /agent-engine /a2f3d-engine /deployer; do
-  crane copy "$ROOT$img:0.1.0" "YOUR_REGISTRY/hope-lms$img:0.1.0"
+for img in "" /web /session-gateway /assessment-engine /curriculum-engine /qdrant \
+           /hope-api /hope-admin-web /hope-agent-engine /hope-a2f3d-engine \
+           /hope-avatar-bridge /hope-workflow-runner /deployer; do
+  crane copy "$ROOT$img:0.2.0" "YOUR_REGISTRY/hope-lms$img:0.2.0"
 done
 ```
 
@@ -115,67 +149,82 @@ Complete these steps once per cluster, before your first CLI install.
    # https://github.com/GoogleCloudPlatform/marketplace-k8s-app-tools/blob/master/docs/mpdev.md
    ```
 
-4. **Provision the customer-side prerequisites** in your GCP project
-   (GKE with Workload Identity, Cloud SQL for PostgreSQL 16, Memorystore for
-   Redis, a Cloud KMS keyring, Workload Identity service accounts, and a
-   valid HOPE LMS license from your CornerstoneX representative). The full
-   prerequisite checklist and every parameter's meaning is in the
-   [Deployment & Configuration Guide](https://console.cloud.google.com/marketplace/product/cornerstonex-public/hope-lms)
-   — the parameter names there match the `x-google-marketplace` schema names
-   used below exactly.
+4. **Provision the customer-side prerequisites** in your GCP project: GKE
+   with Workload Identity and Dataplane V2; Cloud SQL for PostgreSQL 16 with
+   **two databases** (one for MTP, one for HOPE — never shared); Memorystore
+   for Redis; Cloud KMS keys for each product; Workload Identity service
+   accounts; an SSD StorageClass for the 20 GiB Qdrant volume; two RS256
+   keypairs for HOPE's internal service tokens; and a valid HOPE MTP license
+   from your CornerstoneX representative. The full prerequisite checklist and
+   every parameter's meaning is in the
+   [Deployment & Configuration Guide](docs/deploy-guide.html) — the parameter
+   names there match the `x-google-marketplace` schema names used below exactly.
 
 ## Installation
 
 1. **Create the target namespace:**
 
    ```bash
-   export NAMESPACE=hope-lms
+   export NAMESPACE=hope-mtp
    kubectl create namespace "$NAMESPACE"
    ```
 
 2. **Write a parameters file** with the values collected during one-time
    setup. Every key corresponds to a property in [`schema.yaml`](schema.yaml);
-   required properties are listed under `required:` in that file.
+   required properties are listed under `required:` in that file. Keys
+   prefixed `hope.` configure the bundled HOPE Metahuman Service; keys
+   prefixed `global.` are shared by both products.
 
    ```bash
    cat > params.json <<'EOF'
    {
-     "name": "hope-lms",
-     "namespace": "hope-lms",
-     "gcp.projectId": "YOUR_PROJECT_ID",
-     "gcp.deployEnv": "prod",
-     "domains.appUrl": "https://hope.agency.gov",
-     "domains.corsOrigin": "https://hope.agency.gov",
-     "domains.jwtIssuer": "https://api.hope.agency.gov",
-     "domains.jwtAudience": "https://hope.agency.gov",
+     "name": "hope-mtp",
+     "namespace": "hope-mtp",
+
+     "global.gcp.projectId": "YOUR_PROJECT_ID",
+     "global.secrets.redisUrl": "redis://HOST:6379",
+     "global.license.key": "PASTE_YOUR_SIGNED_LICENSE_STRING_HERE",
+
+     "domains.appUrl": "https://train.agency.gov",
+     "domains.apiUrl": "https://api.train.agency.gov",
      "domains.cookieDomain": "agency.gov",
-     "domains.brandingAssetPublicBaseUrl": "https://api.hope.agency.gov",
-     "kms.jwtKmsKeyVersion": "projects/YOUR_PROJECT_ID/locations/us/keyRings/hope-lms/cryptoKeys/jwt-signing/cryptoKeyVersions/1",
-     "kms.authDataKmsKey": "projects/YOUR_PROJECT_ID/locations/us/keyRings/hope-lms/cryptoKeys/auth-data",
-     "serviceAccounts.apiGsa": "hope-lms-api@YOUR_PROJECT_ID.iam.gserviceaccount.com",
-     "serviceAccounts.agentEngineGsa": "hope-lms-agent-engine@YOUR_PROJECT_ID.iam.gserviceaccount.com",
-     "secrets.databaseUrl": "postgresql://USER:PASSWORD@HOST:5432/hope_lms",
-     "secrets.redisUrl": "redis://HOST:6379",
-     "secrets.internalSvcJwtPrivateKey": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----",
-     "secrets.internalSvcJwtPublicKey": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----",
-     "secrets.agentEngineCallbackJwtPublicKey": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----",
-     "secrets.apiCallbackJwtPrivateKey": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----",
-     "license.key": "PASTE_YOUR_SIGNED_LICENSE_STRING_HERE"
+     "kms.jwtKmsKeyVersion": "projects/YOUR_PROJECT_ID/locations/us/keyRings/mtp/cryptoKeys/jwt-signing/cryptoKeyVersions/1",
+     "kms.authDataKmsKey": "projects/YOUR_PROJECT_ID/locations/us/keyRings/mtp/cryptoKeys/auth-data",
+     "serviceAccounts.apiGsa": "mtp-api@YOUR_PROJECT_ID.iam.gserviceaccount.com",
+     "serviceAccounts.assessmentEngineGsa": "mtp-assessment-engine@YOUR_PROJECT_ID.iam.gserviceaccount.com",
+     "serviceAccounts.curriculumEngineGsa": "mtp-curriculum-engine@YOUR_PROJECT_ID.iam.gserviceaccount.com",
+     "secrets.databaseUrl": "postgresql://USER:PASSWORD@HOST:5432/mtp",
+     "qdrant.storageClass": "premium-rwo",
+
+     "hope.domains.appUrl": "https://metahuman.agency.gov",
+     "hope.domains.jwtIssuer": "https://api.metahuman.agency.gov",
+     "hope.domains.jwtAudience": "https://metahuman.agency.gov",
+     "hope.domains.cookieDomain": "agency.gov",
+     "hope.kms.jwtKmsKeyVersion": "projects/YOUR_PROJECT_ID/locations/us/keyRings/hope/cryptoKeys/jwt-signing/cryptoKeyVersions/1",
+     "hope.kms.authDataKmsKey": "projects/YOUR_PROJECT_ID/locations/us/keyRings/hope/cryptoKeys/auth-data",
+     "hope.kms.toolCredentialKmsKey": "projects/YOUR_PROJECT_ID/locations/us/keyRings/hope/cryptoKeys/tool-credentials",
+     "hope.serviceAccounts.apiGsa": "hope-api@YOUR_PROJECT_ID.iam.gserviceaccount.com",
+     "hope.serviceAccounts.agentEngineGsa": "hope-agent-engine@YOUR_PROJECT_ID.iam.gserviceaccount.com",
+     "hope.secrets.databaseUrl": "postgresql://USER:PASSWORD@HOST:5432/hope_metahuman",
+     "hope.secrets.internalSvcJwtPrivateKey": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----",
+     "hope.secrets.internalSvcJwtPublicKey": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----",
+     "hope.secrets.agentEngineCallbackJwtPublicKey": "-----BEGIN PUBLIC KEY-----\n...\n-----END PUBLIC KEY-----",
+     "hope.secrets.apiCallbackJwtPrivateKey": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----"
    }
    EOF
    ```
 
-   > `secrets.sessionPepper`, `secrets.invitationPepper`, `secrets.ipHashPepper`,
-   > and `secrets.captchaHmacKey` are auto-generated — omit them and Marketplace
-   > tooling fills them in. Never commit `params.json` to version control; it
-   > contains credentials.
+   > Peppers, service tokens and the Qdrant API key (`secrets.sessionPepper`,
+   > `secrets.gatewayServiceToken`, `qdrant.apiKey`, `hope.secrets.sessionPepper`,
+   > …) are auto-generated — omit them and Marketplace tooling fills them in.
+   > Never commit `params.json` to version control; it contains credentials.
 
-3. **Deploy** using the deployer image, pinned to the release track (`0.1`)
-   or an exact version (`0.1.0`):
+3. **Deploy** using the deployer image, pinned to the release track (`0.2`)
+   or an exact version (`0.2.0`):
 
    ```bash
    export REGISTRY=us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms
-   export TAG=0.1
+   export TAG=0.2
 
    mpdev install \
      --deployer="$REGISTRY/deployer:$TAG" \
@@ -194,45 +243,60 @@ Complete these steps once per cluster, before your first CLI install.
      --parameters="$(cat params.json)"
    ```
 
-4. **Verify the install** — confirm pods are running, the license was
-   accepted, and the app responds:
+4. **Verify the install** — confirm pods are running and both licenses were
+   accepted:
 
    ```bash
-   kubectl -n hope-lms get pods
-   kubectl -n hope-lms logs deploy/api -c migrate-and-seed
-   kubectl -n hope-lms logs deploy/api | grep -i license
-   kubectl -n hope-lms exec deploy/web -- wget -qO- http://api/health
+   kubectl -n hope-mtp get pods
+   kubectl -n hope-mtp logs deploy/mtp-api -c migrate
+   kubectl -n hope-mtp logs deploy/mtp-api -c api | grep LICENSE_
+   kubectl -n hope-mtp logs deploy/api | grep LICENSE_
+   kubectl -n hope-mtp exec deploy/mtp-web -- wget -qO- http://mtp-api/health/ready
    ```
 
-   > Workload names (`api`, `web`, `agent-engine`, `a2f3d-engine`) are fixed by
-   > the chart and do not vary with the release name, so the commands above work
-   > for any install. The `api` and `web` Services listen on port 80.
+   > Workload names are fixed by the chart and do not vary with the release
+   > name: MTP's are prefixed `mtp-` (`mtp-api`, `mtp-web`, …), HOPE's are
+   > unprefixed (`api`, `admin-web`, …), and the vector store is `qdrant`. The
+   > web and API Services listen on port 80.
+
+5. **Connect your training tenant to HOPE.** The chart deploys HOPE alongside
+   MTP but does not bind a tenant to it. Sign in to the HOPE admin portal
+   (`hope.domains.appUrl`) as its application owner, create the HOPE
+   organization and a machine credential for your training tenant, then sign
+   in to the MTP portal (`domains.appUrl`), open **Platform → Tenants**, and
+   **Connect to HOPE** with the organization id, your public HOPE API URL
+   (`hope.domains.jwtIssuer`) and the credential. Section 7 of the
+   [Deployment & Configuration Guide](docs/deploy-guide.html) walks through it.
 
 ## Basic usage
 
-- **DNS, ingress, TLS.** Point your DNS records for the web and API hosts
-  at your cluster's ingress/load balancer. TLS terminates at the load
-  balancer, not in the application — TLS 1.2 is the minimum, 1.3 preferred.
-  `domains.appUrl`, `domains.corsOrigin`, and `domains.jwtAudience` must all
-  agree, and the API host must match `domains.jwtIssuer`, or logins/CORS
-  will fail.
-- **Signing in.** Browse to `domains.appUrl` once pods report `Running`.
-  If `seedOnBoot` was left at its default (`true`), an initial application
-  owner account is created on first boot.
-- **License lifecycle.** The API checks the license at every boot and once
-  per day thereafter. Within 30 days of expiry it logs a
-  `LICENSE_EXPIRY_WARNING` audit event; an expired or invalid license causes
-  the API pod to exit and enter `CrashLoopBackOff`. Renew by requesting a new
-  license from CornerstoneX and updating the `license.key` parameter (or the
-  `hope-lms-license` Secret directly), then letting the API pods roll — no
-  connectivity to CornerstoneX is required at renewal time.
+- **DNS, ingress, TLS.** Expose `mtp-web`, `mtp-api`, `admin-web` and `api`
+  through your ingress with TLS you control (TLS 1.2 minimum, 1.3 preferred).
+  Route `/ws` and `/ws/*` on the MTP API host to `mtp-session-gateway:80` with
+  a long backend timeout; WebSocket upgrades must pass. `domains.appUrl` and
+  `domains.apiUrl` (and their `hope.domains.*` counterparts) must match your
+  actual hostnames, or logins will fail.
+- **Signing in.** Browse to `domains.appUrl` and `hope.domains.appUrl` once
+  pods report `Running`. With `seedOnBoot` / `hope.seedOnBoot` at their default
+  (`true`), an initial application owner account exists in each product.
+- **License lifecycle.** Both APIs check the license at every boot and once
+  per day thereafter. Within 30 days of expiry they log a
+  `LICENSE_EXPIRY_WARNING`; an expired or invalid license causes the API pods
+  to exit and enter `CrashLoopBackOff`. Renew by requesting a new license from
+  CornerstoneX and updating the `global.license.key` parameter (or the
+  `hope-lms-license` and `hope-metahuman-license` Secrets directly), then
+  letting the API pods roll — no connectivity to CornerstoneX is required.
+- **Consumption tracking.** Every Pod carries the `goog-partner-solution`
+  label Google uses to attribute consumption. Do not remove it: `mtp-api`
+  checks its own label every 15 minutes and serves only `/health` while it is
+  missing.
 
 ## Backup and restore
 
-HOPE LMS keeps all durable state in Cloud SQL (PostgreSQL 16) and
-Memorystore for Redis, both of which you provision and manage outside this
-chart. Back up and restore using the standard GCP mechanisms for those
-services:
+Durable state lives in Cloud SQL (PostgreSQL 16, two databases) and, for the
+vector index, the `qdrant-storage` PersistentVolumeClaim. Redis holds only
+ephemeral cache and queue state. Back up Cloud SQL with the standard GCP
+mechanisms:
 
 ```bash
 # Backup (on-demand)
@@ -243,15 +307,15 @@ gcloud sql backups restore BACKUP_ID \
   --restore-instance=YOUR_CLOUD_SQL_INSTANCE
 ```
 
-Redis in Memorystore is used only for caching and ephemeral session/queue
-state; it does not require backup for disaster recovery. No application
-data lives on pod-local disk or in a `PersistentVolumeClaim`.
+The vector index can be rebuilt by re-indexing documents; to preserve it,
+snapshot the Persistent Disk behind `qdrant-storage` with your usual disk
+snapshot schedule.
 
 ## Image updates
 
-To move to a newer release track or patch version, re-run the install with
-the new deployer tag — `mpdev` (and the Cloud Console) treat this as an
-upgrade of the existing `Application` resource rather than a fresh install:
+To move to a newer patch version on the same track, re-run the install with
+the new deployer tag — `mpdev` (and the Cloud Console) treat this as an update
+of the existing `Application` resource:
 
 ```bash
 export TAG=0.2
@@ -264,19 +328,26 @@ Review the release notes for the target version (`publishedVersionMetadata`
 in `schema.yaml`) before upgrading, and re-pin to the new immutable digest
 per the [Installation](#installation) step above.
 
+## Upgrading from 0.1.x
+
+0.2 is not an in-place upgrade of a 0.1.x install: the image set, the
+parameter names (`global.*`, `mtp.*`, `hope.*`) and the Kubernetes resource
+names (`mtp-*`) all changed, and the bundled HOPE Metahuman Service needs its
+own database, KMS keys and service accounts. Uninstall the 0.1.x release
+(see [Deletion](#deletion)), provision the additional prerequisites, then
+install 0.2 into the namespace with a new `params.json`.
+
 ## Scaling
 
-Each workload's replica count is a Helm value (`api.replicas`,
-`web.replicas`, `agentEngine.replicas`, `a2f3dEngine.replicas`), defaulting
-to `2`. Scale by re-installing with updated values, or directly:
+Replica counts are Helm values (`mtp.api.replicas`, `mtp.web.replicas`,
+`hope.api.replicas`, …), defaulting to `2`. Horizontal Pod Autoscalers are
+included for every Deployment and scale within the `clusterConstraints`
+declared in [`schema.yaml`](schema.yaml). Qdrant is a single replica by
+design (ReadWriteOnce storage). Scale a Deployment directly with:
 
 ```bash
-kubectl -n hope-lms scale deployment/api --replicas=4
+kubectl -n hope-mtp scale deployment/mtp-api --replicas=4
 ```
-
-Horizontal Pod Autoscalers are included in the chart for each workload and
-will scale within the `clusterConstraints` bounds declared in
-[`schema.yaml`](schema.yaml).
 
 ## Deletion
 
@@ -286,32 +357,33 @@ mpdev uninstall \
   --parameters="$(cat params.json)"
 
 # Or, without mpdev:
-kubectl -n hope-lms delete application hope-lms
-kubectl delete namespace hope-lms
+kubectl -n hope-mtp delete application hope-mtp
+kubectl delete namespace hope-mtp
 ```
 
-Deleting the namespace removes all in-cluster resources created by this
-chart (Deployments, Services, ConfigMaps, Secrets, ServiceAccounts, HPAs,
-NetworkPolicies). It does **not** delete your Cloud SQL instance, Memorystore
-instance, or Cloud KMS keys — those are customer-managed and outlive the
-application install. Clean those up separately if you are decommissioning
-the deployment entirely.
+Deleting the `Application` removes every in-cluster resource created by this
+chart **except** the `qdrant-storage` PersistentVolumeClaim, which is kept so
+the vector index survives a reinstall; delete it explicitly
+(`kubectl -n hope-mtp delete pvc qdrant-storage`) when decommissioning. Your
+Cloud SQL instance, Memorystore instance and Cloud KMS keys are
+customer-managed and outlive the install — clean those up separately.
 
 ## Troubleshooting
 
-| Symptom | Likely cause | Resolution |
-| --- | --- | --- |
-| API pod `CrashLoopBackOff`; log shows `LICENSE_VALIDATION_FAILED` | Missing, malformed, or expired license | Re-paste the exact license string; if expired, install a renewed license |
-| API fails at boot with a KMS or permission error | KMS key path wrong, or the API GSA lacks signer/decrypter roles | Verify `kms.jwtKmsKeyVersion` / `kms.authDataKmsKey` and the Workload Identity binding |
-| API cannot reach the database or Redis | Wrong connection URL, or the cluster subnet can't reach the instance | Check `secrets.databaseUrl` / `secrets.redisUrl` and VPC/firewall/private-service-access |
-| Login fails or CORS errors in the browser | Domain parameters disagree with actual hostnames | Align `domains.*` with your DNS and re-deploy |
-| Avatar/voice features unavailable | No reachable NVIDIA NIM configured | Set `a2f3d.nimUrl` to your NIM and supply the three `a2f3d.nimMtls.*` certificates |
-| Install reports that the application did not become ready | One workload never started; on a cold cluster the images alone are ~4.6 GB | The deployer allows 15 minutes and then prints the status and log tail of every pod that is not ready — read that first. `kubectl logs job/<name>-deployer -n <namespace>` has the full output |
+| Symptom                                                                          | Likely cause                                                        | Resolution                                                                                                                                                    |
+| -------------------------------------------------------------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mtp-api` or `api` pod `CrashLoopBackOff`; log shows `LICENSE_VALIDATION_FAILED` | Missing, malformed, or expired license                              | Re-paste the exact license string into `global.license.key`; if expired, install a renewed license                                                            |
+| An API fails at boot with a KMS or permission error                              | KMS key path wrong, or the GSA lacks signer/decrypter roles         | Verify the `kms.*` / `hope.kms.*` paths and the Workload Identity bindings                                                                                    |
+| `migrate` init container fails                                                   | Wrong connection URL, or the two products share one database        | Check `secrets.databaseUrl` and `hope.secrets.databaseUrl` point at two different databases the cluster can reach                                             |
+| `qdrant-0` stays `Pending`                                                       | The PersistentVolumeClaim did not bind                              | Confirm `qdrant.storageClass` exists and can provision a 20 GiB ReadWriteOnce volume                                                                          |
+| 503 on every MTP route except `/health`                                          | The `goog-partner-solution` label was removed from the `mtp-api` Pod | Restore the label; the API recovers on its next 15-minute check                                                                                                |
+| Training sessions never start                                                    | Tenant not bound to HOPE, or `/ws` not routed to the session gateway | Complete the post-install binding (Installation step 5) and route `/ws` on the API host to `mtp-session-gateway`                                              |
+| Avatar/voice features unavailable                                                | No reachable NVIDIA NIM configured                                  | Set `hope.a2f3d.nimUrl` to your NIM and supply the three `hope.a2f3d.nimMtls.*` certificates                                                                   |
+| Install reports that the application did not become ready                       | One workload never started; a cold cluster pulls every image first  | The deployer allows 25 minutes and then prints the status and log tail of every pod that is not ready — read that first. `kubectl logs job/<name>-deployer -n <namespace>` has the full output |
 
-The API applies database migrations in an init container before its own container
-is allowed to start, and waits up to 10 minutes for the database to accept
-queries (`MIGRATE_DB_WAIT_SECONDS`). A first install on a cold cluster therefore
-takes several minutes before any pod reports ready; this is expected.
+Both APIs apply database migrations in an init container before their own
+container starts. A first install on a cold cluster therefore takes several
+minutes before any API pod reports ready; this is expected.
 
 ## Support
 
@@ -320,7 +392,9 @@ CornerstoneX representative.
 
 ## License
 
-The contents of this repository (Helm chart, schema, and the deployer's
-build files) are licensed under the [Apache License 2.0](LICENSE). See
-[NOTICE](NOTICE) for how this applies alongside the separate HOPE LMS
-commercial license that governs the application itself.
+The contents of this repository (the Helm charts — the HOPE MTP umbrella and
+the vendored HOPE Metahuman Service chart — the schema, the deployment guide
+and the deployer's build files) are licensed under the
+[Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for how this applies
+alongside the separate commercial license that governs the applications
+themselves.

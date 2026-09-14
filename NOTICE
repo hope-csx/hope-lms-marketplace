@@ -1,4 +1,4 @@
-HOPE LMS — Google Cloud Marketplace deployment assets
+HOPE MTP — Google Cloud Marketplace deployment assets
 Copyright 2026 CornerstoneX
 
 This product includes software developed by CornerstoneX
@@ -7,14 +7,16 @@ This product includes software developed by CornerstoneX
 Scope of this repository
 -------------------------
 This repository contains only the deployment configuration required to
-install HOPE LMS from Google Cloud Marketplace via the command line: the
-Helm chart, the Marketplace parameter schema, the deployer's container
-build files, and this documentation. It does not contain the HOPE LMS
-application source code, which remains proprietary to CornerstoneX and is
+install HOPE MTP — the Metahuman Training Platform bundled with the HOPE
+Metahuman Service — from Google Cloud Marketplace via the command line: the
+umbrella Helm chart, the vendored HOPE Metahuman Service Helm chart, the
+Marketplace parameter schema, the deployer's container build files, the
+deployment guide, and this documentation. It does not contain the source code
+of either application, which remains proprietary to CornerstoneX and is
 distributed exclusively as container images through Google Cloud Marketplace
-under the HOPE LMS commercial license agreement.
+under the HOPE MTP commercial license agreement.
 
 The Apache License, Version 2.0 (see LICENSE) applies only to the contents
 of this repository (the deployment configuration described above). It does
-not extend to the HOPE LMS application, its container images, or any
-CornerstoneX trademarks.
+not extend to the HOPE MTP or HOPE Metahuman Service applications, their
+container images, or any CornerstoneX trademarks.

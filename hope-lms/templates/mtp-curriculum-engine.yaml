@@ -1,0 +1,179 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mtp-curriculum-engine
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: mtp-curriculum-engine
+    {{- include "hope-lms.labels" . | nindent 4 }}
+  {{- include "hope-lms.gsaAnnotation" .Values.serviceAccounts.curriculumEngineGsa | nindent 2 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mtp-curriculum-engine-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hope-lms.labels" . | nindent 4 }}
+data:
+  APP_ENV: 'production'
+  DEPLOY_ENV: {{ .Values.global.gcp.deployEnv | quote }}
+  GCP_PROJECT_ID: {{ .Values.global.gcp.projectId | quote }}
+  SERVICE_NAME: 'curriculum-engine'
+  HOST: '0.0.0.0'
+  PORT: '4030'
+  LOG_LEVEL: 'INFO'
+  API_BASE_URL: 'http://mtp-api.{{ .Release.Namespace }}.{{ include "hope-lms.svcDomain" . }}:80'
+  # The in-cluster Qdrant shipped by this chart (templates/qdrant.yaml). The
+  # API key is the client half of qdrant-secret, in mtp-curriculum-engine-secret.
+  VECTOR_PROVIDER: 'qdrant'
+  QDRANT_URL: 'http://qdrant.{{ .Release.Namespace }}.{{ include "hope-lms.svcDomain" . }}:6333'
+  # Document AI extraction only when the customer supplies a processor; the
+  # engine's local analyzer otherwise. Embeddings and plan drafting go through
+  # the restricted Vertex endpoint either way (§8, §13).
+  {{- if .Values.docai.processorId }}
+  ANALYSIS_PROVIDER: 'docai'
+  DOCAI_PROJECT: {{ .Values.global.gcp.projectId | quote }}
+  DOCAI_LOCATION: {{ .Values.docai.location | quote }}
+  DOCAI_PROCESSOR_ID: {{ .Values.docai.processorId | quote }}
+  {{- else }}
+  ANALYSIS_PROVIDER: 'fake'
+  {{- end }}
+  EMBEDDING_PROVIDER: 'vertex'
+  EMBEDDING_MODEL: {{ .Values.mtp.vertex.embeddingModel | quote }}
+  PLAN_PROVIDER: 'vertex'
+  PLAN_MODEL: {{ .Values.mtp.vertex.planModel | quote }}
+  VERTEX_LOCATION: {{ .Values.mtp.vertex.location | quote }}
+  VERTEX_API_ENDPOINT: {{ .Values.mtp.vertex.apiEndpoint | quote }}
+  OTEL_SERVICE_NAME: 'curriculum-engine'
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mtp-curriculum-engine
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: mtp-curriculum-engine
+    {{- include "hope-lms.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: mtp-curriculum-engine
+  ports:
+    - name: http
+      port: 80
+      targetPort: 4030
+      protocol: TCP
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mtp-curriculum-engine
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: mtp-curriculum-engine
+    {{- include "hope-lms.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.mtp.curriculumEngine.replicas }}
+  progressDeadlineSeconds: 900
+  selector:
+    matchLabels:
+      app: mtp-curriculum-engine
+  template:
+    metadata:
+      labels:
+        app: mtp-curriculum-engine
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        {{- include "hope-lms.consumptionTrackingLabel" . | nindent 8 }}
+    spec:
+      serviceAccountName: mtp-curriculum-engine
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      containers:
+        - name: curriculum-engine
+          image: {{ .Values.mtp.curriculumEngine.image | quote }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 4030
+              protocol: TCP
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          envFrom:
+            - configMapRef:
+                name: mtp-curriculum-engine-config
+            - secretRef:
+                name: mtp-curriculum-engine-secret
+          resources:
+            requests:
+              cpu: '100m'
+              memory: '256Mi'
+              ephemeral-storage: '256Mi'
+            limits:
+              cpu: '500m'
+              memory: '512Mi'
+              ephemeral-storage: '1Gi'
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 4030
+            failureThreshold: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4030
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4030
+            periodSeconds: 30
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec:
+                command: ['/bin/sh', '-c', 'sleep 30']
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      terminationGracePeriodSeconds: 60
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: mtp-curriculum-engine
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hope-lms.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: mtp-curriculum-engine
+  minReplicas: {{ .Values.mtp.curriculumEngine.replicas }}
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80

@@ -1,0 +1,249 @@
+# Default values for the HOPE Metahuman Service Marketplace chart.
+#
+# Every value here is a Marketplace-collectible parameter declared in
+# ../schema.yaml. At deploy time Google Cloud Marketplace overrides the image
+# references (after re-publishing the images) and the customer-supplied
+# configuration. The defaults below exist so the chart renders during local
+# `helm template` / `mpdev verify` smoke tests; they are NOT production values.
+#
+# IMPORTANT: image fields are parameterized in ../schema.yaml (type: FULL).
+# The `api` image is the primary image (the '' key in schema.yaml), so it lives
+# at the product root path with no name segment; every other image is a sibling
+# beneath that root. Do not rely on these default registries — Marketplace
+# rewrites them to the customer's re-published locations at deploy time.
+
+# ── Standalone vs. bundled ────────────────────────────────────────────────────
+# `true` when this chart is the whole Marketplace product (its own Application
+# resource and smoke test). The combined "HOPE MTP" product vendors this chart
+# as a Helm subchart and sets it to false: the umbrella chart owns the single
+# Application resource Marketplace requires and the one smoke-test Pod.
+standalone: true
+
+# ── Values shared with an umbrella chart (Helm `global`) ─────────────────────
+# Empty here so nested lookups never nil-deref in a standalone render. When set
+# by a parent chart they take precedence over the per-product values below
+# (see the *.licenseKey / projectId / deployEnv / redisUrl helpers) so one
+# license, one GCP project and one Redis serve both bundled products.
+global:
+  license:
+    key: ''
+  gcp:
+    projectId: ''
+    deployEnv: ''
+  secrets:
+    redisUrl: ''
+  # Extra labels stamped on every Pod template. The umbrella chart uses this
+  # for the Marketplace consumption-tracking label (goog-partner-solution),
+  # which must be present on every workload of the listed solution.
+  podLabels: {}
+
+# ── Container images ──────────────────────────────────────────────────────────
+api:
+  image: us-docker.pkg.dev/cornerstonex-public/hope-mhs:0.1.0
+  replicas: 2
+adminWeb:
+  image: us-docker.pkg.dev/cornerstonex-public/hope-mhs/admin-web:0.1.0
+  replicas: 2
+agentEngine:
+  image: us-docker.pkg.dev/cornerstonex-public/hope-mhs/agent-engine:0.1.0
+  replicas: 2
+a2f3dEngine:
+  image: us-docker.pkg.dev/cornerstonex-public/hope-mhs/a2f3d-engine:0.1.0
+  replicas: 2
+
+# ── Live Premium Avatars (ADR 0121) ───────────────────────────────────────────
+# Standard 3D metahumans need none of this; they animate in the browser from
+# blendshapes the a2f3d engine produces. A Premium Avatar is rendered by the
+# provider into a WebRTC room instead, so it needs a media plane.
+#
+# The chart does not ship that media plane. A media server has to be reachable
+# by browsers over wss:// and by UDP for media, which means a load balancer, a
+# public address and a certificate — infrastructure the customer owns and that
+# an air-gapped install may not permit at all. So the customer points this at a
+# LiveKit deployment they operate, and the chart deploys only the avatar bridge,
+# which is cluster-internal and reachable from the API alone.
+#
+# Left disabled, Premium Avatars still appear in the catalogue and still speak;
+# the portal reports that live rendering is unavailable rather than failing the
+# conversation.
+liveAvatars:
+  enabled: false
+  image: us-docker.pkg.dev/cornerstonex-public/hope-mhs/avatar-bridge:0.1.0
+  # One replica by design: a room connection lives in the process that opened it,
+  # so a second replica cannot serve a turn the first one started (ADR 0121).
+  replicas: 1
+  # Browser-facing signalling URL of the customer's LiveKit deployment,
+  # e.g. wss://livekit.agency.gov. Must be wss:// — a browser on an https page
+  # will refuse ws://.
+  signalUrl: ''
+  # Key identifier half of the LiveKit API key pair. Not a secret; it names which
+  # secret signed a room token. The secret half is secrets.livekitApiSecret.
+  apiKey: ''
+
+# ── Workflow sandbox (tenant-authored `code` nodes) ───────────────────────────
+# `k8s` runs tenant Python in single-use gVisor pods in their own namespace.
+# `disabled` turns the sandbox off: declarative workflows (tool, llm, output
+# nodes) still run, and a `code` node fails with SANDBOX_UNAVAILABLE rather than
+# running anywhere less isolated. Choose `disabled` when cluster policy forbids
+# the platform creating pods outside its own namespace, or when the cluster has
+# no gVisor RuntimeClass. There is no third option that runs tenant code in the
+# engine process — that process holds the Vertex credentials.
+workflowSandbox:
+  mode: k8s
+  image: us-docker.pkg.dev/cornerstonex-public/hope-mhs/workflow-runner:0.1.0
+  # Warm-pool floor. Each pod serves one execution and exits.
+  replicas: 2
+  namespace: hope-metahuman-sandbox
+  # The RuntimeClass providing kernel-level isolation. `gvisor` on GKE. A
+  # cluster without it should set mode: disabled rather than changing this to
+  # `runc`, which would remove the isolation without removing the feature.
+  runtimeClassName: gvisor
+  # mTLS material for the connection the pool manager opens into the sandbox.
+  # Customer-supplied, from a CA they control — not a platform-wide one, because
+  # tenant code can read the server key inside the pod. Leave empty to have the
+  # chart skip both secrets; the engine then refuses to claim a sandbox rather
+  # than connecting without authentication.
+  tls:
+    caCertPem: ''
+    serverCertPem: ''
+    serverKeyPem: ''
+    clientCertPem: ''
+    clientKeyPem: ''
+
+# Deployer image reference — recorded on the Application resource so the
+# Marketplace UI can show the installed version. Set by the release pipeline.
+deployerImage: us-docker.pkg.dev/cornerstonex-public/hope-mhs/deployer:0.1.0
+
+# ── Reporting secret (Marketplace usage reporting / entitlement) ──────────────
+# Injected by Marketplace when the app is a paid listing. Referenced by the
+# Application resource. Left empty for private / BYOL installs.
+reportingSecret: ''
+
+# ── GCP deployment identifiers ────────────────────────────────────────────────
+gcp:
+  # The customer's air-gapped GCP project ID that this app is deployed into.
+  projectId: ''
+  # Deployment target tier. Marketplace installs are always 'prod'.
+  deployEnv: prod
+
+# ── Public URLs / domains ─────────────────────────────────────────────────────
+domains:
+  # Absolute browser-facing URL of the admin web portal, e.g. https://metahuman.agency.gov
+  appUrl: ''
+  # Absolute API URL used as the JWT issuer, e.g. https://api.hope.agency.gov
+  jwtIssuer: ''
+  # Absolute web URL used as the JWT audience — normally identical to appUrl.
+  jwtAudience: ''
+  # Cookie domain shared by web + api, e.g. agency.gov
+  cookieDomain: ''
+  # OIDC redirect + post-login URLs (optional — only if the customer uses SSO).
+  oidcOktaRedirectUri: ''
+  oidcOktaPostLoginRedirect: ''
+
+# ── Cloud KMS (customer pre-provisioned, HSM-backed) ──────────────────────────
+kms:
+  # Fully-qualified Cloud KMS cryptoKeyVersion used to sign access tokens.
+  jwtKmsKeyVersion: ''
+  # Fully-qualified Cloud KMS cryptoKey used to wrap TOTP secrets / auth data.
+  authDataKmsKey: ''
+  # Fully-qualified Cloud KMS cryptoKey used to wrap tenant-supplied tool
+  # credentials. Must be a different key from authDataKmsKey so a tenant
+  # credential can be revoked without invalidating live sessions (SC-12).
+  toolCredentialKmsKey: ''
+
+# ── Workload Identity: customer-provisioned GCP service account emails ────────
+# Each Kubernetes ServiceAccount is annotated with its bound GSA so pods reach
+# Secret Manager / KMS / Cloud SQL without static keys (FedRAMP IA-2, IA-5).
+serviceAccounts:
+  apiGsa: ''
+  adminWebGsa: ''
+  agentEngineGsa: ''
+  a2f3dEngineGsa: ''
+
+# ── Application secrets (rendered into Kubernetes Secrets) ────────────────────
+# Peppers and the CAPTCHA HMAC key are auto-generated by Marketplace
+# (GENERATED_PASSWORD). Connection strings and the internal service keypairs
+# are supplied by the customer. All are injected as env vars; the API's
+# secret-loader skips Secret Manager whenever the env var is already present.
+secrets:
+  databaseUrl: ''
+  redisUrl: ''
+  sessionPepper: ''
+  invitationPepper: ''
+  ipHashPepper: ''
+  captchaHmacKey: ''
+  # Keypair 1: api signs internal service tokens, engines verify them.
+  internalSvcJwtPrivateKey: ''
+  internalSvcJwtPublicKey: ''
+  # Keypair 2: agent-engine signs callbacks to api, api verifies them.
+  agentEngineCallbackJwtPublicKey: ''
+  apiCallbackJwtPrivateKey: ''
+  # Server-side only, one credential per live-video avatar tier. Each is used for
+  # that tier's avatar catalogue and rendering; set either, both, or neither. A
+  # tier with no credential is not offered. Only read when liveAvatars.enabled is
+  # true, which requires at least one of them.
+  # "Premium" tier; also enables the tenant custom-avatar builder.
+  protofaceApiKey: ''
+  # "Ultra Premium" tier. Existing metahumans are all on this tier.
+  trugenApiKey: ''
+  # Server-side only. Enables the self-service Standard 3D avatar builder, where a
+  # tenant creates an avatar from phone selfies in an embedded creator. Unrelated
+  # to liveAvatars: the Standard 3D tier renders in the browser and offers its
+  # bundled stock avatars whether or not this is set.
+  avaturnApiToken: ''
+  # Signing secret for the avatar creator's build notifications, issued by its
+  # developer portal in whsec_<base64> form and used as an HMAC key to verify each
+  # notification — not a value chosen here. With no value the notification route
+  # refuses every call and builds instead complete when the portal next reads the
+  # avatar.
+  avaturnWebhookSecret: ''
+  # Signs the short-lived room tokens the API issues to browsers and to the
+  # bridge. Only read when liveAvatars.enabled is true.
+  livekitApiSecret: ''
+  # Server-side app integration key. OAuth/provider credentials stay in the
+  # self-hosted authentication service.
+
+integrations:
+  # Customer-operated app authentication endpoint. Hosted third-party endpoints
+  # are not supported.
+
+# ── Offline license (REQUIRED) ────────────────────────────────────────────────
+# The signed license blob issued by the HOPE Metahuman Service license authority. Without a
+# valid, unexpired license the API refuses to boot (CrashLoopBackOff).
+license:
+  key: ''
+
+# ── AI conversation tier: NVIDIA Audio2Face-3D NIM (customer-supplied) ────────
+a2f3d:
+  # gRPC endpoint of the customer's NIM. Left as-is per deployment; the chart
+  # does not ship or manage the NIM image or its NGC licensing.
+  nimUrl: 'nim-a2f3d.hope-metahuman.svc.cluster.local:52000'
+  # 'mtls' mounts client certs from the nimMtls.* PEM values below; 'disabled'
+  # skips the mount (use only when the NIM enforces no transport auth).
+  nimSecureMode: 'mtls'
+  nimMtls:
+    rootCaPem: ''
+    clientCertPem: ''
+    clientKeyPem: ''
+
+# ── Vertex AI (agent-engine) ──────────────────────────────────────────────────
+vertex:
+  location: us-central1
+  chatModel: gemini-2.5-flash-lite
+  # GCP-only authoring fallback. Marketplace installations never require an
+  # OpenAI credential or send tenant authoring content outside Vertex AI.
+  authorModel: gemini-2.5-pro
+  embeddingModel: text-embedding-005
+
+# ── Feature toggles ───────────────────────────────────────────────────────────
+# Run the idempotent bootstrap seed (application owner) on first boot.
+seedOnBoot: true
+# CAPTCHA must remain enabled in production (FedRAMP SI-3, SC-5).
+captchaEnabled: true
+
+# Bootstrap application owner created by the seed (idempotent). Uses approved
+# non-PII placeholder values; the customer changes these post-install.
+bootstrapOwner:
+  email: admin@hope-metahuman.example
+  firstName: Application
+  lastName: Owner

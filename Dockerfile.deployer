@@ -1,8 +1,14 @@
-# HOPE LMS Google Cloud Marketplace deployer image.
+# HOPE MTP Google Cloud Marketplace deployer image (MTP + HOPE Metahuman Service).
 #
 # Published to <product-root>/deployer:<version> — see "Registry layout" in
 # README.md. The tag MUST equal x-google-marketplace
 # .publishedVersion in schema.yaml (enforced by scripts/sync-marketplace-version.mjs).
+#
+# The chart under hope-lms/ carries the HOPE Metahuman Service chart as a
+# vendored subchart (hope-lms/charts/hope-metahuman-service), committed to this
+# repository from the HOPE commit recorded in HOPE_REF by
+# scripts/vendor-hope-chart.sh. The guards below refuse to package a chart
+# whose vendored copy is missing or predates the hooks the umbrella relies on.
 #
 # The Helm deployer base image bundles helm + kubectl and the Marketplace
 # install/uninstall entrypoints. At deploy time it renders the chart under
@@ -17,8 +23,120 @@
 # straight to 13.0.x (dropping the leading "0."). There is no 0.13.0 tag —
 # check current tags with `gcloud container images list-tags
 # gcr.io/cloud-marketplace-tools/k8s/deployer_helm` before bumping this.
-ARG MARKETPLACE_TOOLS_TAG=13.0.4
+ARG MARKETPLACE_TOOLS_TAG=13.0.9
+
+# ── Patched helm and kubectl ────────────────────────────────────────────────
+# The base image's helm and kubectl are the only Go binaries in this deployer,
+# and Google rebuilds them on its own cadence: 13.0.9 still ships both compiled
+# with go1.26.5 and kubectl still vendors golang.org/x/net v0.49.0. That is what
+# Marketplace's scanner reported against our 0.1.2 release as CVE-2026-39821
+# (GO-2026-5026) — the golang.org/x/net/idna flaw where ToASCII/ToUnicode accept
+# Punycode labels decoding to pure ASCII, so a hostname authorization check can
+# be bypassed. It reaches us twice per binary: once through the module and once
+# through the copy the Go runtime vendors into net/http.
+#
+# Neither `apt-get upgrade` nor a base image bump can fix a compiled-in Go
+# dependency, and there is no upstream release of either tool that is clean:
+# helm v4.2.4 carries the x/net fix but is still built with go1.26.5, and
+# v1.36.3 is the newest kubectl in any release channel. So both are rebuilt here
+# from their upstream tags against go1.26.6 with the patched modules, then
+# installed over the base image's copies. FedRAMP SI-2, SC-8.
+#
+# When bumping MARKETPLACE_TOOLS_TAG, re-check what the new base ships (`syft
+# <image>` or scripts/security/scan-marketplace-images.sh) and realign
+# HELM_VERSION / KUBECTL_VERSION with it. The guards in the final stage fail the
+# build rather than let a mismatch through silently.
+ARG GO_TOOLCHAIN_TAG=1.26.6-bookworm
+ARG HELM_VERSION=v4.2.4
+ARG HELM_COMMIT=3900f434fd3ef2b84065dc04508df48f288dba00
+ARG KUBECTL_VERSION=v1.36.3
+ARG KUBECTL_COMMIT=0f29094e5b73085e3802ecc1298ecae13866bfe6
+# Lower bounds, not exact pins — `go mod edit -require` only raises the floor,
+# and a later `go mod tidy` may resolve higher if another dependency asks for it.
+#   x/net  >= v0.55.0 — GO-2026-5026 (CVE-2026-39821); v0.56.0 also clears
+#                       GO-2026-4918 and GO-2026-5942
+#   x/text >= v0.39.0 — GO-2026-5970
+#   x/crypto >= v0.56.0 — GO-2026-6303, GO-2026-6354 and GO-2026-6355
+#   oras   >= v2.6.2  — GHSA-fxhp-mv3v-67qp (helm's registry client)
+ARG GO_X_NET_VERSION=v0.56.0
+ARG GO_X_TEXT_VERSION=v0.40.0
+ARG GO_X_CRYPTO_VERSION=v0.56.0
+ARG ORAS_GO_VERSION=v2.6.2
+
+FROM golang:${GO_TOOLCHAIN_TAG} AS tools
+
+ARG HELM_VERSION
+ARG HELM_COMMIT
+ARG KUBECTL_VERSION
+ARG KUBECTL_COMMIT
+ARG GO_X_NET_VERSION
+ARG GO_X_TEXT_VERSION
+ARG GO_X_CRYPTO_VERSION
+ARG ORAS_GO_VERSION
+
+# Static binaries: they are installed into an Ubuntu image whose glibc is not
+# this builder's. GOWORK=off is required for kubectl — kubernetes/kubernetes
+# v1.36 ships a go.work covering its staging modules, and `go mod vendor` refuses
+# to run in workspace mode. helm is unaffected by it.
+ENV CGO_ENABLED=0 \
+    GOOS=linux \
+    GOARCH=amd64 \
+    GOWORK=off
+
+WORKDIR /out
+
+# Cloning a tag alone would leave the source of a FedRAMP-relevant binary
+# floating: tags are mutable. Each clone is checked against the commit the tag
+# pointed at when this Dockerfile was written (CM-7).
+RUN set -eu; \
+    git clone --depth 1 --branch "${HELM_VERSION}" https://github.com/helm/helm /src/helm; \
+    actual="$(git -C /src/helm rev-parse HEAD)"; \
+    if [ "${actual}" != "${HELM_COMMIT}" ]; then \
+      echo "helm ${HELM_VERSION} is at ${actual}, expected ${HELM_COMMIT} — tag moved" >&2; \
+      exit 1; \
+    fi; \
+    cd /src/helm; \
+    go mod edit \
+      -require=golang.org/x/net@${GO_X_NET_VERSION} \
+      -require=golang.org/x/text@${GO_X_TEXT_VERSION} \
+      -require=golang.org/x/crypto@${GO_X_CRYPTO_VERSION} \
+      -require=oras.land/oras-go/v2@${ORAS_GO_VERSION}; \
+    go mod tidy; \
+    go build -trimpath \
+      -ldflags "-s -w \
+        -X helm.sh/helm/v4/internal/version.version=${HELM_VERSION} \
+        -X helm.sh/helm/v4/internal/version.gitCommit=${HELM_COMMIT}" \
+      -o /out/helm ./cmd/helm; \
+    /out/helm version
+
+RUN set -eu; \
+    git clone --depth 1 --branch "${KUBECTL_VERSION}" \
+      https://github.com/kubernetes/kubernetes /src/kubernetes; \
+    actual="$(git -C /src/kubernetes rev-parse HEAD)"; \
+    if [ "${actual}" != "${KUBECTL_COMMIT}" ]; then \
+      echo "kubectl ${KUBECTL_VERSION} is at ${actual}, expected ${KUBECTL_COMMIT} — tag moved" >&2; \
+      exit 1; \
+    fi; \
+    cd /src/kubernetes; \
+    go mod edit \
+      -require=golang.org/x/net@${GO_X_NET_VERSION} \
+      -require=golang.org/x/text@${GO_X_TEXT_VERSION} \
+      -require=golang.org/x/crypto@${GO_X_CRYPTO_VERSION}; \
+    go mod tidy; \
+    go mod vendor; \
+    go build -mod=vendor -trimpath \
+      -ldflags "-s -w \
+        -X k8s.io/component-base/version.gitVersion=${KUBECTL_VERSION} \
+        -X k8s.io/component-base/version.gitCommit=${KUBECTL_COMMIT} \
+        -X k8s.io/client-go/pkg/version.gitVersion=${KUBECTL_VERSION} \
+        -X k8s.io/client-go/pkg/version.gitCommit=${KUBECTL_COMMIT}" \
+      -o /out/kubectl ./cmd/kubectl; \
+    /out/kubectl version --client
+
 FROM gcr.io/cloud-marketplace-tools/k8s/deployer_helm:$MARKETPLACE_TOOLS_TAG
+
+ARG HELM_VERSION
+ARG KUBECTL_VERSION
 
 # Google rebuilds this base image infrequently, so it carries Ubuntu security
 # updates that Marketplace's own CHECK_PACKAGE_VULNERABILITIES scan will report
@@ -29,16 +147,61 @@ RUN apt-get update \
     && apt-get upgrade -y \
     && rm -rf /var/lib/apt/lists/*
 
+# Swap in the rebuilt binaries. Both are staged to /tmp first so the replacement
+# can be guarded — an unguarded COPY would happily create a second, unused
+# kubectl directory or drop an incompatible helm major on the base image's
+# scripts, and either way the vulnerable binary would still ship.
+COPY --from=tools /out/helm /out/kubectl /tmp/patched-tools/
+
+# create_manifests.sh and process_helm_hooks.py drive helm through its v4 CLI, so
+# a rebuild from a different major would break the deployer rather than patch it.
+RUN set -eu; \
+    base_major="$(helm version --template '{{.Version}}' | sed 's/^v\([0-9]*\).*/\1/')"; \
+    new_major="$(echo "${HELM_VERSION}" | sed 's/^v\([0-9]*\).*/\1/')"; \
+    if [ "${base_major}" != "${new_major}" ]; then \
+      echo "base image ships helm v${base_major} but HELM_VERSION is ${HELM_VERSION}" >&2; \
+      exit 1; \
+    fi; \
+    install -m 0755 /tmp/patched-tools/helm /usr/local/bin/helm; \
+    helm version
+
+# kubectl lives under a per-minor directory that /opt/kubectl/default points at,
+# so the base image can carry more than one. Anything we do not overwrite keeps
+# the vulnerable binary and Marketplace scans the whole image, so refuse to build
+# against a base whose kubectl minor we did not rebuild.
+RUN set -eu; \
+    want="$(echo "${KUBECTL_VERSION}" | cut -d. -f1-2)"; \
+    patched=0; \
+    for dir in /opt/kubectl/v*/; do \
+      found="$(basename "${dir}")"; \
+      if [ "${found}" != "${want}" ]; then \
+        echo "base image ships kubectl ${found}; rebuild it too or realign KUBECTL_VERSION (${KUBECTL_VERSION})" >&2; \
+        exit 1; \
+      fi; \
+      install -m 0755 /tmp/patched-tools/kubectl "${dir}/kubectl"; \
+      patched=$((patched + 1)); \
+    done; \
+    if [ "${patched}" -eq 0 ]; then \
+      echo "no /opt/kubectl/v* directory found — base image layout changed" >&2; \
+      exit 1; \
+    fi; \
+    rm -rf /tmp/patched-tools; \
+    kubectl version --client
+
 # ── Readiness budget ────────────────────────────────────────────────────────
 # deploy.sh waits ${WAIT_FOR_READY_TIMEOUT:-300} seconds for the install to come
 # up, and neither Marketplace's verification nor mpdev sets that variable. 300s
 # does not cover a cold cluster: nothing starts until the node has pulled this
-# release's images, the API then applies the schema migrations before its own
-# container is allowed to start, and only then does the readiness probe have
-# something to talk to. Failing at five minutes reports a healthy install as
-# broken. Raised here rather than in the chart because it governs the deployer,
-# not the workloads.
-ENV WAIT_FOR_READY_TIMEOUT=900
+# release's images, both APIs then apply their schema migrations before their
+# own containers are allowed to start, the Qdrant volume has to bind, and only
+# then do the readiness probes have something to talk to. Failing early reports
+# a healthy install as broken. The 0.1 release needed 900s for four workloads;
+# 0.2 ships ten plus a StatefulSet, so the budget is raised again. Set here
+# rather than in the chart because it governs the deployer, not the workloads.
+# The smoke test gets its own budget for the same reason: it now checks six
+# endpoints with a retry window each.
+ENV WAIT_FOR_READY_TIMEOUT=1500 \
+    TESTER_TIMEOUT=600
 
 # ── Failure diagnostics ─────────────────────────────────────────────────────
 # The stock readiness wait reports only that the deadline passed. Marketplace
@@ -58,6 +221,17 @@ RUN chmod 0755 /bin/wait_for_ready.py /bin/wait_for_ready_real.py
 # directory is the chart name. Both must match or the deployer renders nothing.
 # This mirrors what the deployer_helm/onbuild variant's ONBUILD triggers do.
 COPY hope-lms /tmp/chart
+# Refuse to package without the vendored HOPE subchart, or with a copy that
+# predates the hooks this chart relies on (standalone gate, global.* fallbacks,
+# podLabels helper). Either would render a second Application resource — which
+# Marketplace rejects — or lose the consumption-tracking label on HOPE's Pods.
+RUN set -eu; \
+    test -f /tmp/chart/charts/hope-metahuman-service/Chart.yaml \
+      || { echo "vendored HOPE subchart missing — run scripts/vendor-hope-chart.sh" >&2; exit 1; }; \
+    grep -q 'hope-metahuman-service.podLabels' /tmp/chart/charts/hope-metahuman-service/templates/_helpers.tpl \
+      || { echo "vendored HOPE subchart predates the umbrella hooks — bump HOPE_REF and re-vendor" >&2; exit 1; }; \
+    grep -q '^standalone:' /tmp/chart/charts/hope-metahuman-service/values.yaml \
+      || { echo "vendored HOPE subchart has no standalone toggle — bump HOPE_REF and re-vendor" >&2; exit 1; }
 RUN mkdir -p /data/chart \
     && tar -czf /data/chart/chart.tar.gz -C /tmp chart \
     && rm -rf /tmp/chart
@@ -70,7 +244,8 @@ COPY schema.yaml /data/schema.yaml
 # /data-test/chart onto the real chart. Marketplace's verification supplies only
 # name and namespace, so without the schema overlay the deployer aborts on the
 # first required property it cannot resolve. The chart overlay supplies the
-# ephemeral Postgres and Redis that the API's migration init container needs.
+# ephemeral Postgres (two databases) and Redis that both APIs' migration init
+# containers need.
 #
 # The test archive MUST use the same file name as the production one: the
 # overlay is matched by extracted path, and the path is derived from the archive
@@ -81,8 +256,8 @@ RUN mkdir -p /data-test/chart \
     && tar -czf /data-test/chart/chart.tar.gz -C /tmp chart \
     && rm -rf /tmp/chart
 
-# Throwaway service keypairs for the test deployment only — see the script for
-# why they are generated here rather than committed.
+# Throwaway HOPE service keypairs for the test deployment only — see the script
+# for why they are generated here rather than committed.
 COPY apptest/deployer/inject-test-keys.sh /tmp/inject-test-keys.sh
 RUN bash /tmp/inject-test-keys.sh /data-test/schema.yaml \
     && rm -f /tmp/inject-test-keys.sh
@@ -90,7 +265,7 @@ RUN bash /tmp/inject-test-keys.sh /data-test/schema.yaml \
 # The verification license, passed as a BuildKit secret so that no entitlement
 # is committed to the repository and none is recorded in the image history:
 #   docker build --secret id=apptest_license,src=license.txt ...
-# Omit the secret and the deployer still builds and installs, but the API exits
+# Omit the secret and the deployer still builds and installs, but both APIs exit
 # during boot because license enforcement is on for every Marketplace install.
 COPY apptest/deployer/inject-test-license.sh /tmp/inject-test-license.sh
 RUN --mount=type=secret,id=apptest_license \

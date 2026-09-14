@@ -12,10 +12,12 @@ metadata:
     marketplace.cloud.google.com/deploy-info: '{"partner_id": "cornerstonex", "product_id": "hope-lms", "partner_name": "CornerstoneX"}'
 spec:
   descriptor:
-    type: HOPE LMS
+    type: HOPE MTP
     version: {{ .Chart.AppVersion | quote }}
     description: >-
-      HOPE LMS learning management system (web, api, agent-engine,
+      HOPE MTP metahuman training platform (web, api, session-gateway,
+      assessment-engine, curriculum-engine, Qdrant) bundled with the HOPE
+      Metahuman Service it runs on (api, admin-web, agent-engine,
       a2f3d-engine). Requires a valid offline license and customer-provisioned
       Cloud SQL, Memorystore (Redis) and Cloud KMS resources.
     maintainers:
@@ -26,12 +28,21 @@ spec:
         url: https://www.cornerstonex.ai/hope-lms/docs/deploy-guide.html
     notes: >-
       After install, verify all pods are Ready and browse to your configured
-      appUrl. Monitor Cloud Logging for LICENSE_EXPIRY_WARNING entries — the API
-      logs an error daily once the license is within 30 days of expiry, and
-      refuses to boot once expired.
+      MTP and HOPE web URLs. Then complete the one-time tenant binding: sign in
+      to the HOPE admin portal, create the organization and machine credential
+      your training tenant will use, and bind it from the MTP platform console
+      (deploy guide, "Connect your tenant to HOPE"). Monitor Cloud Logging for
+      LICENSE_EXPIRY_WARNING entries — both APIs log an error daily once the
+      license is within 30 days of expiry, and refuse to boot once expired.
   info:
-    - name: Web URL
+    - name: MTP web URL
       value: {{ .Values.domains.appUrl | quote }}
+    - name: MTP API URL
+      value: {{ .Values.domains.apiUrl | quote }}
+    - name: HOPE admin URL
+      value: {{ .Values.hope.domains.appUrl | quote }}
+    - name: HOPE API URL
+      value: {{ include "hope-lms.hopeApiUrl" . | quote }}
     - name: Deployer image
       value: {{ .Values.deployerImage | quote }}
   selector:
@@ -40,6 +51,8 @@ spec:
   componentKinds:
     - group: apps/v1
       kind: Deployment
+    - group: apps/v1
+      kind: StatefulSet
     - group: v1
       kind: Service
     - group: v1
@@ -48,5 +61,9 @@ spec:
       kind: Secret
     - group: v1
       kind: ServiceAccount
+    - group: v1
+      kind: PersistentVolumeClaim
     - group: autoscaling/v2
       kind: HorizontalPodAutoscaler
+    - group: networking.k8s.io/v1
+      kind: NetworkPolicy

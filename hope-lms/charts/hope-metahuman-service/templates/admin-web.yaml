@@ -1,0 +1,153 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: admin-web
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: admin-web
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
+  {{- if .Values.serviceAccounts.adminWebGsa }}
+  annotations:
+    iam.gke.io/gcp-service-account: {{ .Values.serviceAccounts.adminWebGsa | quote }}
+  {{- end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: admin-web-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
+data:
+  NODE_ENV: 'production'
+  # Browser-facing API URL. Deliberately NOT NEXT_PUBLIC_API_URL: the admin-web
+  # image is published once and reused by every Marketplace customer
+  # install, so this value cannot be baked in at build time — it is read by
+  # the root layout at request time and embedded into a per-page runtime
+  # config script tag. See apps/admin-web/lib/runtime-config.ts and
+  # docs/adr/0026-runtime-public-api-url.md.
+  API_PUBLIC_URL: {{ .Values.domains.jwtIssuer | quote }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: admin-web
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: admin-web
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: admin-web
+  ports:
+    - name: http
+      port: 80
+      targetPort: 3000
+      protocol: TCP
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin-web
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: admin-web
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.adminWeb.replicas }}
+  progressDeadlineSeconds: 900
+  selector:
+    matchLabels:
+      app: admin-web
+  template:
+    metadata:
+      labels:
+        app: admin-web
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        {{- include "hope-metahuman-service.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: admin-web
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      containers:
+        - name: admin-web
+          image: {{ .Values.adminWeb.image | quote }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: admin-web-config
+          resources:
+            requests:
+              cpu: '100m'
+              memory: '256Mi'
+              ephemeral-storage: '256Mi'
+            limits:
+              cpu: '500m'
+              memory: '512Mi'
+              ephemeral-storage: '256Mi'
+          # '/' redirects to the login page and kubelet follows the redirect,
+          # so each probe pays for a server-rendered page. The default
+          # timeoutSeconds of 1 is not enough for that render on the 100m CPU
+          # request above once a node is busy, which shows up as
+          # "context deadline exceeded" rather than a crash.
+          startupProbe:
+            httpGet:
+              path: /
+              port: 3000
+            failureThreshold: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            periodSeconds: 30
+            failureThreshold: 3
+            timeoutSeconds: 5
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: admin-web
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: admin-web
+  minReplicas: {{ .Values.adminWeb.replicas }}
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80

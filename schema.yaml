@@ -6,13 +6,20 @@ x-google-marketplace:
   applicationApiVersion: v1beta1
 
   # The release version. MUST match the release tag on the deployer image.
-  # Kept in lockstep with Chart.yaml and the deployer tag by
+  # Kept in lockstep with hope-lms/Chart.yaml and the deployer tag by
   # scripts/sync-marketplace-version.mjs.
-  publishedVersion: '0.1.0'
+  publishedVersion: '0.2.0'
   publishedVersionMetadata:
     releaseNote: >-
-      Initial Google Cloud Marketplace release of HOPE LMS (web, api,
-      agent-engine, a2f3d-engine) with offline license enforcement.
+      HOPE MTP 0.2 bundles the HOPE Metahuman Service with the Metahuman
+      Training Platform as one Kubernetes application: the MTP web portal,
+      api, session gateway, assessment and curriculum engines and an
+      in-cluster Qdrant vector store install alongside the HOPE api, admin
+      portal, agent engine and Audio2Face-3D engine, under a single offline
+      license. This is a new application generation, not an in-place upgrade
+      of 0.1.x: image names, deployment parameters and Kubernetes resource
+      names have changed, and a 0.1.x install must be removed before 0.2 is
+      installed into the same namespace.
     releaseTypes:
       - Feature
     recommended: true
@@ -27,40 +34,86 @@ x-google-marketplace:
   # All images used by the app MUST be declared and parameterized here so
   # Marketplace can re-publish and re-tag them into the customer-visible
   # registry. The '' (empty) key is the primary image: Marketplace resolves it by
-  # path convention at the product root itself, so `api` must be published to
-  # that exact path with no name segment. The others are additional images at
-  # sibling paths beneath it. See "Registry layout" in README.md.
+  # path convention at the product root itself, so the MTP `api` must be
+  # published to that exact path with no name segment. The others are
+  # additional images at sibling paths beneath it — MTP's own, the HOPE
+  # Metahuman Service images (prefixed `hope-`), and the mirrored Qdrant. See
+  # "Registry layout" in README.md.
   images:
     '':
       properties:
-        api.image:
+        mtp.api.image:
           type: FULL
     web:
       properties:
-        web.image:
+        mtp.web.image:
           type: FULL
-    agent-engine:
+    session-gateway:
       properties:
-        agentEngine.image:
+        mtp.sessionGateway.image:
           type: FULL
-    a2f3d-engine:
+    assessment-engine:
       properties:
-        a2f3dEngine.image:
+        mtp.assessmentEngine.image:
+          type: FULL
+    curriculum-engine:
+      properties:
+        mtp.curriculumEngine.image:
+          type: FULL
+    qdrant:
+      properties:
+        qdrant.image:
+          type: FULL
+    hope-api:
+      properties:
+        hope.api.image:
+          type: FULL
+    hope-admin-web:
+      properties:
+        hope.adminWeb.image:
+          type: FULL
+    hope-agent-engine:
+      properties:
+        hope.agentEngine.image:
+          type: FULL
+    hope-a2f3d-engine:
+      properties:
+        hope.a2f3dEngine.image:
+          type: FULL
+    hope-avatar-bridge:
+      properties:
+        hope.liveAvatars.image:
+          type: FULL
+    # Declared so Marketplace re-publishes it with the rest of the release; the
+    # chart renders no workflow-runner in 0.2 (workflowSandbox.mode is
+    # `disabled` — see hope.workflowSandbox.mode below).
+    hope-workflow-runner:
+      properties:
+        hope.workflowSandbox.image:
           type: FULL
 
   # The deployer service account needs no extra cluster permissions beyond the
   # default Marketplace deployer role: the chart creates only namespaced
-  # resources (Deployments, Services, ConfigMaps, Secrets, ServiceAccounts,
-  # HPAs, NetworkPolicies, and the Application CR).
+  # resources (Deployments, a StatefulSet and its PersistentVolumeClaim,
+  # Services, ConfigMaps, Secrets, ServiceAccounts, HPAs, NetworkPolicies, and
+  # the Application CR). The HOPE workflow sandbox, which would need a second
+  # namespace and RBAC, is not offered.
   clusterConstraints:
     resources:
+      # One MTP + HOPE stateless set per node: the five MTP workloads at
+      # 100m/256Mi each plus HOPE's four at 700m/1536Mi in total.
       - replicas: 2
         requests:
-          cpu: 700m
-          memory: 1536Mi
+          cpu: 1200m
+          memory: 2816Mi
         affinity:
           simpleNodeAffinity:
             type: REQUIRE_ONE_NODE_PER_REPLICA
+      # The Qdrant StatefulSet.
+      - replicas: 1
+        requests:
+          cpu: 1000m
+          memory: 2Gi
 
 properties:
   name:
@@ -72,14 +125,14 @@ properties:
     x-google-marketplace:
       type: NAMESPACE
 
-  # ── GCP deployment identifiers ──────────────────────────────────────────────
-  gcp.projectId:
+  # ── Shared by both products ─────────────────────────────────────────────────
+  global.gcp.projectId:
     type: string
     title: GCP project ID
     description: >-
-      The GCP project ID of your air-gapped tenant that HOPE LMS is deployed
-      into. Used to resolve Cloud KMS keys and (optionally) Secret Manager.
-  gcp.deployEnv:
+      The GCP project ID of the tenant HOPE MTP is deployed into. Used by both
+      products to resolve Cloud KMS keys and Google AI endpoints.
+  global.gcp.deployEnv:
     type: string
     title: Deployment tier
     description: Deployment target tier. Keep as 'prod' for Marketplace installs.
@@ -87,128 +140,132 @@ properties:
     enum:
       - prod
       - staging
+  global.secrets.redisUrl:
+    type: string
+    title: Redis (Memorystore) URL
+    description: >-
+      Memorystore for Redis connection URL, including any AUTH token. One
+      instance serves both products (HOPE prefixes its keys).
+    x-google-marketplace:
+      type: MASKED_FIELD
 
-  # ── Public URLs / domains ───────────────────────────────────────────────────
+  # ── Offline license (REQUIRED) ──────────────────────────────────────────────
+  global.license.key:
+    type: string
+    title: HOPE MTP license
+    description: >-
+      The signed license blob issued to your organization by CornerstoneX. One
+      license covers the training platform and the bundled HOPE Metahuman
+      Service; without a valid, unexpired license neither will start.
+    x-google-marketplace:
+      type: MASKED_FIELD
+
+  # ── MTP public URLs / domains ───────────────────────────────────────────────
   domains.appUrl:
     type: string
-    title: Web app URL
-    description: Absolute browser-facing URL of the web app, e.g. https://hope.agency.gov
+    title: MTP web app URL
+    description: Absolute browser-facing URL of the training portal, e.g. https://train.agency.gov
     pattern: '^https://.+'
-  domains.corsOrigin:
+  domains.apiUrl:
     type: string
-    title: CORS origin
-    description: Allowed CORS origin for the API. Normally identical to the web app URL.
-    pattern: '^https://.+'
-  domains.jwtIssuer:
-    type: string
-    title: API URL (JWT issuer)
-    description: Absolute API URL, e.g. https://api.hope.agency.gov. Also used as the browser API URL.
-    pattern: '^https://.+'
-  domains.jwtAudience:
-    type: string
-    title: JWT audience
-    description: JWT audience. Normally identical to the web app URL.
+    title: MTP API URL
+    description: >-
+      Absolute public URL of the MTP api, e.g. https://api.train.agency.gov.
+      Used as the JWT issuer, the OIDC callback origin and the browser API URL.
     pattern: '^https://.+'
   domains.cookieDomain:
     type: string
-    title: Cookie domain
-    description: Parent domain shared by the web and API hosts, e.g. agency.gov
-  domains.brandingAssetPublicBaseUrl:
+    title: MTP cookie domain
+    description: Parent domain shared by the MTP web and API hosts, e.g. agency.gov
+  domains.gatewayWsUrl:
     type: string
-    title: Branding asset base URL
-    description: Absolute public base URL of the API as reached by browsers (serves org branding assets).
-    pattern: '^https://.+'
-  domains.oktaDisplayName:
-    type: string
-    title: SSO button label
-    description: Display name shown on the login screen SSO button (optional).
+    title: MTP live-session WebSocket URL
+    description: >-
+      Browser-facing wss:// URL for live training sessions. Leave empty to use
+      wss://<MTP API host>/ws — your ingress must then route /ws on the API
+      host to the mtp-session-gateway Service.
     default: ''
-  domains.oidcOktaRedirectUri:
+  domains.hopeApiUrl:
     type: string
-    title: OIDC redirect URI
-    description: Platform-wide OIDC callback URL registered with your IdP (optional; only if using SSO).
+    title: HOPE API public URL (for MTP)
+    description: >-
+      Public URL of the bundled HOPE api as MTP tenants will reach it. Leave
+      empty to use the HOPE JWT issuer below.
     default: ''
-  domains.oidcOktaPostLoginRedirect:
+  domains.oidcPostLoginRedirect:
     type: string
-    title: OIDC post-login redirect
+    title: MTP OIDC post-login redirect
     description: URL the browser is sent to after successful SSO (optional; defaults to the web app URL).
     default: ''
 
-  # ── Cloud KMS (customer pre-provisioned, HSM-backed) ────────────────────────
+  # ── MTP Cloud KMS (customer pre-provisioned, HSM-backed) ────────────────────
   kms.jwtKmsKeyVersion:
     type: string
-    title: JWT signing KMS key version
+    title: MTP JWT signing KMS key version
     description: >-
-      Fully-qualified Cloud KMS cryptoKeyVersion used to sign access tokens
+      Fully-qualified Cloud KMS cryptoKeyVersion used to sign MTP access tokens
       (projects/.../cryptoKeyVersions/N). Must be an ASYMMETRIC_SIGN key.
   kms.authDataKmsKey:
     type: string
-    title: Auth-data KMS key
+    title: MTP auth-data KMS key
     description: >-
-      Fully-qualified Cloud KMS cryptoKey used to wrap TOTP secrets and other
-      auth data (projects/.../cryptoKeys/auth-data). Must be ENCRYPT_DECRYPT.
+      Fully-qualified Cloud KMS cryptoKey used to wrap MTP TOTP secrets and
+      other auth data (projects/.../cryptoKeys/auth-data). Must be ENCRYPT_DECRYPT.
+  kms.curriculumDataKmsKey:
+    type: string
+    title: MTP curriculum-data KMS key
+    description: >-
+      Optional dedicated ENCRYPT_DECRYPT key for uploaded learner documents and
+      their extractions. Leave empty to use the auth-data key.
+    default: ''
 
-  # ── Workload Identity: customer GCP service account emails ──────────────────
+  # ── MTP Workload Identity: customer GCP service account emails ──────────────
   serviceAccounts.apiGsa:
     type: string
-    title: API GCP service account
-    description: Email of the GSA bound to the API Kubernetes ServiceAccount (Workload Identity).
+    title: MTP API GCP service account
+    description: Email of the GSA bound to the mtp-api ServiceAccount (needs Cloud KMS; GCS if a documents bucket is set).
   serviceAccounts.webGsa:
     type: string
-    title: Web GCP service account
-    description: Email of the GSA bound to the web Kubernetes ServiceAccount (Workload Identity).
+    title: MTP web GCP service account
+    description: Email of the GSA bound to the mtp-web ServiceAccount (optional; the portal calls no Google API).
     default: ''
-  serviceAccounts.agentEngineGsa:
+  serviceAccounts.sessionGatewayGsa:
     type: string
-    title: Agent-engine GCP service account
-    description: Email of the GSA bound to the agent-engine ServiceAccount (needs Vertex AI access).
-  serviceAccounts.a2f3dEngineGsa:
-    type: string
-    title: A2F-3D engine GCP service account
-    description: Email of the GSA bound to the a2f3d-engine ServiceAccount.
+    title: MTP session-gateway GCP service account
+    description: Email of the GSA bound to the mtp-session-gateway ServiceAccount (optional).
     default: ''
+  serviceAccounts.assessmentEngineGsa:
+    type: string
+    title: MTP assessment-engine GCP service account
+    description: Email of the GSA bound to the mtp-assessment-engine ServiceAccount (needs Vertex AI).
+  serviceAccounts.curriculumEngineGsa:
+    type: string
+    title: MTP curriculum-engine GCP service account
+    description: Email of the GSA bound to the mtp-curriculum-engine ServiceAccount (needs Vertex AI; Document AI and GCS when configured).
 
-  # ── Connection strings (customer-supplied secrets) ──────────────────────────
+  # ── MTP connection strings and credentials (customer-supplied) ──────────────
   secrets.databaseUrl:
     type: string
-    title: PostgreSQL connection URL
-    description: Cloud SQL (PostgreSQL 16) connection URL, including credentials.
+    title: MTP PostgreSQL connection URL
+    description: Cloud SQL (PostgreSQL 16) connection URL for the MTP database, including credentials.
     x-google-marketplace:
       type: MASKED_FIELD
-  secrets.redisUrl:
+  secrets.smtpPassword:
     type: string
-    title: Redis (Memorystore) URL
-    description: Memorystore for Redis connection URL, including any AUTH token.
+    title: MTP SMTP password
+    description: Password / App Password for transactional mail (required when an SMTP user is set).
+    default: ''
+    x-google-marketplace:
+      type: MASKED_FIELD
+  secrets.bootstrapOwnerPassword:
+    type: string
+    title: MTP bootstrap owner password
+    description: Initial password for the bootstrap application owner (at least 14 characters). Optional.
+    default: ''
     x-google-marketplace:
       type: MASKED_FIELD
 
-  # ── Internal service keypairs (customer-supplied secrets) ───────────────────
-  secrets.internalSvcJwtPrivateKey:
-    type: string
-    title: Internal service JWT private key (PEM)
-    description: RS256 private key the API uses to sign internal service-to-service tokens.
-    x-google-marketplace:
-      type: MASKED_FIELD
-  secrets.internalSvcJwtPublicKey:
-    type: string
-    title: Internal service JWT public key (PEM)
-    description: Matching RS256 public key the engines use to verify API tokens.
-    x-google-marketplace:
-      type: MASKED_FIELD
-  secrets.agentEngineCallbackJwtPublicKey:
-    type: string
-    title: Agent-engine callback public key (PEM)
-    description: RS256 public key the API uses to verify callbacks from the agent-engine.
-    x-google-marketplace:
-      type: MASKED_FIELD
-  secrets.apiCallbackJwtPrivateKey:
-    type: string
-    title: Agent-engine callback private key (PEM)
-    description: Matching RS256 private key the agent-engine uses to sign callbacks to the API.
-    x-google-marketplace:
-      type: MASKED_FIELD
-
-  # ── Generated secrets (auto-created by Marketplace) ─────────────────────────
+  # ── MTP generated secrets (auto-created by Marketplace) ─────────────────────
   secrets.sessionPepper:
     type: string
     x-google-marketplace:
@@ -233,7 +290,31 @@ properties:
         length: 48
         includeSymbols: false
         base64: true
-  secrets.captchaHmacKey:
+  secrets.apiKeySecretPepper:
+    type: string
+    x-google-marketplace:
+      type: GENERATED_PASSWORD
+      generatedPassword:
+        length: 48
+        includeSymbols: false
+        base64: true
+  secrets.gatewayServiceToken:
+    type: string
+    x-google-marketplace:
+      type: GENERATED_PASSWORD
+      generatedPassword:
+        length: 48
+        includeSymbols: false
+        base64: true
+  secrets.assessmentEngineToken:
+    type: string
+    x-google-marketplace:
+      type: GENERATED_PASSWORD
+      generatedPassword:
+        length: 48
+        includeSymbols: false
+        base64: true
+  secrets.curriculumEngineToken:
     type: string
     x-google-marketplace:
       type: GENERATED_PASSWORD
@@ -242,80 +323,354 @@ properties:
         includeSymbols: false
         base64: true
 
-  # ── Offline license (REQUIRED) ──────────────────────────────────────────────
-  license.key:
+  # ── MTP transactional mail (optional) ───────────────────────────────────────
+  mail.smtpHost:
     type: string
-    title: HOPE LMS license
+    title: MTP SMTP host
+    description: SMTP relay for invitations and password resets (STARTTLS on 587 or implicit TLS on 465). Leave empty to disable mail.
+    default: ''
+  mail.smtpPort:
+    type: integer
+    title: MTP SMTP port
+    default: 587
+  mail.smtpUser:
+    type: string
+    title: MTP SMTP user
+    default: ''
+  mail.from:
+    type: string
+    title: MTP sender address
+    description: From address for transactional mail, e.g. no-reply@agency.gov.
+    default: ''
+
+  # ── MTP document-grounded curriculum (optional) ─────────────────────────────
+  docai.processorId:
+    type: string
+    title: Document AI processor ID
     description: >-
-      The signed license blob issued to your organization by CornerstoneX.
-      Without a valid, unexpired license the application will not start.
+      Form Parser processor in your project used to extract uploaded documents.
+      Leave empty to use the built-in text analyzer instead of Document AI.
+    default: ''
+  docai.location:
+    type: string
+    title: Document AI location
+    default: us
+  storage.documentsBucket:
+    type: string
+    title: MTP documents bucket
+    description: GCS bucket (bare name) for uploaded learner documents. Leave empty to store document bytes in the database.
+    default: ''
+
+  # ── In-cluster Qdrant vector store ──────────────────────────────────────────
+  qdrant.storageClass:
+    type: string
+    title: Qdrant storage class
+    description: StorageClass for the vector index volume. SSD-backed persistent disk is recommended.
+    x-google-marketplace:
+      type: STORAGE_CLASS
+      storageClass:
+        type: SSD
+  qdrant.storageSize:
+    type: string
+    title: Qdrant volume size
+    description: Size of the vector index volume, e.g. 20Gi.
+    default: 20Gi
+  qdrant.apiKey:
+    type: string
+    x-google-marketplace:
+      type: GENERATED_PASSWORD
+      generatedPassword:
+        length: 48
+        includeSymbols: false
+        base64: true
+
+  # ── MTP feature toggles ─────────────────────────────────────────────────────
+  seedOnBoot:
+    type: boolean
+    title: 'MTP: seed application owner on first boot'
+    description: Run the idempotent bootstrap seed to create the initial MTP application owner.
+    default: true
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # HOPE Metahuman Service (bundled). These map onto the vendored subchart's
+  # values under the `hope.` alias. Its license, GCP project, Redis and
+  # consumption-tracking label come from the shared `global.*` values above.
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # ── HOPE public URLs / domains ──────────────────────────────────────────────
+  hope.domains.appUrl:
+    type: string
+    title: 'HOPE: admin portal URL'
+    description: Absolute browser-facing URL of the HOPE admin portal, e.g. https://metahuman.agency.gov
+    pattern: '^https://.+'
+  hope.domains.jwtIssuer:
+    type: string
+    title: 'HOPE: API URL (JWT issuer)'
+    description: Absolute HOPE API URL, e.g. https://api.metahuman.agency.gov. Also used as the browser API URL.
+    pattern: '^https://.+'
+  hope.domains.jwtAudience:
+    type: string
+    title: 'HOPE: JWT audience'
+    description: HOPE JWT audience. Normally identical to the HOPE admin portal URL.
+    pattern: '^https://.+'
+  hope.domains.cookieDomain:
+    type: string
+    title: 'HOPE: cookie domain'
+    description: Parent domain shared by the HOPE web and API hosts, e.g. agency.gov
+  hope.domains.oidcOktaRedirectUri:
+    type: string
+    title: 'HOPE: OIDC redirect URI'
+    description: Platform-wide OIDC callback URL registered with your IdP (optional; only if using SSO for HOPE).
+    default: ''
+  hope.domains.oidcOktaPostLoginRedirect:
+    type: string
+    title: 'HOPE: OIDC post-login redirect'
+    description: URL the browser is sent to after successful SSO (optional; defaults to the HOPE admin portal URL).
+    default: ''
+
+  # ── HOPE Cloud KMS (customer pre-provisioned, HSM-backed) ───────────────────
+  hope.kms.jwtKmsKeyVersion:
+    type: string
+    title: 'HOPE: JWT signing KMS key version'
+    description: Fully-qualified Cloud KMS cryptoKeyVersion used to sign HOPE access tokens. Must be an ASYMMETRIC_SIGN key.
+  hope.kms.authDataKmsKey:
+    type: string
+    title: 'HOPE: auth-data KMS key'
+    description: Fully-qualified Cloud KMS cryptoKey used to wrap HOPE TOTP secrets and auth data. Must be ENCRYPT_DECRYPT.
+  hope.kms.toolCredentialKmsKey:
+    type: string
+    title: 'HOPE: tool-credential KMS key'
+    description: >-
+      Fully-qualified Cloud KMS cryptoKey used to wrap tenant-supplied tool
+      credentials. Must differ from the auth-data key so a tenant credential
+      can be revoked without invalidating live sessions.
+
+  # ── HOPE Workload Identity: customer GCP service account emails ─────────────
+  hope.serviceAccounts.apiGsa:
+    type: string
+    title: 'HOPE: API GCP service account'
+    description: Email of the GSA bound to the HOPE api ServiceAccount (needs Cloud KMS).
+  hope.serviceAccounts.adminWebGsa:
+    type: string
+    title: 'HOPE: admin-web GCP service account'
+    description: Email of the GSA bound to the HOPE admin-web ServiceAccount (optional).
+    default: ''
+  hope.serviceAccounts.agentEngineGsa:
+    type: string
+    title: 'HOPE: agent-engine GCP service account'
+    description: Email of the GSA bound to the HOPE agent-engine ServiceAccount (needs Vertex AI).
+  hope.serviceAccounts.a2f3dEngineGsa:
+    type: string
+    title: 'HOPE: A2F-3D engine GCP service account'
+    description: Email of the GSA bound to the HOPE a2f3d-engine ServiceAccount (optional).
+    default: ''
+
+  # ── HOPE connection strings and credentials (customer-supplied) ─────────────
+  hope.secrets.databaseUrl:
+    type: string
+    title: 'HOPE: PostgreSQL connection URL'
+    description: >-
+      Cloud SQL (PostgreSQL 16) connection URL for the HOPE database, including
+      credentials. Use a separate database from the MTP one (the same instance
+      is fine).
+    x-google-marketplace:
+      type: MASKED_FIELD
+  hope.secrets.internalSvcJwtPrivateKey:
+    type: string
+    title: 'HOPE: internal service JWT private key (PEM)'
+    description: RS256 private key the HOPE api uses to sign internal service-to-service tokens.
+    x-google-marketplace:
+      type: MASKED_FIELD
+  hope.secrets.internalSvcJwtPublicKey:
+    type: string
+    title: 'HOPE: internal service JWT public key (PEM)'
+    description: Matching RS256 public key the HOPE engines use to verify api tokens.
+    x-google-marketplace:
+      type: MASKED_FIELD
+  hope.secrets.agentEngineCallbackJwtPublicKey:
+    type: string
+    title: 'HOPE: agent-engine callback public key (PEM)'
+    description: RS256 public key the HOPE api uses to verify callbacks from the agent-engine.
+    x-google-marketplace:
+      type: MASKED_FIELD
+  hope.secrets.apiCallbackJwtPrivateKey:
+    type: string
+    title: 'HOPE: agent-engine callback private key (PEM)'
+    description: Matching RS256 private key the HOPE agent-engine uses to sign callbacks to the api.
+    x-google-marketplace:
+      type: MASKED_FIELD
+  hope.secrets.protofaceApiKey:
+    type: string
+    title: 'HOPE: Premium avatar provider API key'
+    description: Optional. Enables the Premium live-video avatar tier and the custom-avatar builder.
+    default: ''
+    x-google-marketplace:
+      type: MASKED_FIELD
+  hope.secrets.trugenApiKey:
+    type: string
+    title: 'HOPE: Ultra Premium avatar provider API key'
+    description: Optional. Enables the Ultra Premium live-video avatar tier.
+    default: ''
+    x-google-marketplace:
+      type: MASKED_FIELD
+  hope.secrets.avaturnApiToken:
+    type: string
+    title: 'HOPE: Standard 3D avatar creator token'
+    description: Optional. Enables the self-service Standard 3D avatar builder.
+    default: ''
+    x-google-marketplace:
+      type: MASKED_FIELD
+  hope.secrets.avaturnWebhookSecret:
+    type: string
+    title: 'HOPE: avatar creator webhook secret'
+    description: Optional. Signing secret (whsec_...) for the avatar creator's build notifications.
+    default: ''
     x-google-marketplace:
       type: MASKED_FIELD
 
-  # ── NVIDIA Audio2Face-3D NIM (customer-supplied) ────────────────────────────
-  a2f3d.nimUrl:
+  # ── HOPE generated secrets (auto-created by Marketplace) ────────────────────
+  hope.secrets.sessionPepper:
     type: string
-    title: NVIDIA NIM endpoint
+    x-google-marketplace:
+      type: GENERATED_PASSWORD
+      generatedPassword:
+        length: 48
+        includeSymbols: false
+        base64: true
+  hope.secrets.invitationPepper:
+    type: string
+    x-google-marketplace:
+      type: GENERATED_PASSWORD
+      generatedPassword:
+        length: 48
+        includeSymbols: false
+        base64: true
+  hope.secrets.ipHashPepper:
+    type: string
+    x-google-marketplace:
+      type: GENERATED_PASSWORD
+      generatedPassword:
+        length: 48
+        includeSymbols: false
+        base64: true
+  hope.secrets.captchaHmacKey:
+    type: string
+    x-google-marketplace:
+      type: GENERATED_PASSWORD
+      generatedPassword:
+        length: 48
+        includeSymbols: false
+        base64: true
+
+  # ── HOPE NVIDIA Audio2Face-3D NIM (customer-supplied) ──────────────────────
+  hope.a2f3d.nimUrl:
+    type: string
+    title: 'HOPE: NVIDIA NIM endpoint'
     description: gRPC endpoint of your NVIDIA Audio2Face-3D NIM. Not shipped or managed by this app.
-    default: nim-a2f3d.hope-lms.svc.cluster.local:52000
-  # 'disabled' is deliberately not offered. The chart runs the engine with
-  # APP_ENV=production, and the engine refuses to start with an unauthenticated
-  # NIM connection in that mode, so offering it here would hand out a
-  # configuration that crash-loops on first deploy.
-  a2f3d.nimSecureMode:
+    default: nim-a2f3d.hope-metahuman.svc.cluster.local:52000
+  # 'disabled' is deliberately not offered: the engine runs with
+  # APP_ENV=production and refuses an unauthenticated NIM connection there.
+  hope.a2f3d.nimSecureMode:
     type: string
-    title: NIM transport security
+    title: 'HOPE: NIM transport security'
     description: Authenticate to the NIM with client certificates. Supply the certificates below.
     default: mtls
     enum:
       - mtls
-  # Left empty the engine still starts; it fails when it first dials the NIM.
-  # They are not in `required` because the avatar tier is optional — a customer
-  # deploying without a NIM has no certificates to supply.
-  a2f3d.nimMtls.rootCaPem:
+  hope.a2f3d.nimMtls.rootCaPem:
     type: string
-    title: NIM root CA certificate (PEM)
-    description: CA certificate that signed your NVIDIA Audio2Face-3D NIM server certificate.
+    title: 'HOPE: NIM root CA certificate (PEM)'
+    description: CA certificate that signed your NIM server certificate. Optional until the avatar tier is used.
+    default: ''
     x-google-marketplace:
       type: MASKED_FIELD
-  a2f3d.nimMtls.clientCertPem:
+  hope.a2f3d.nimMtls.clientCertPem:
     type: string
-    title: NIM client certificate (PEM)
+    title: 'HOPE: NIM client certificate (PEM)'
     description: Client certificate the avatar engine presents to your NIM.
+    default: ''
     x-google-marketplace:
       type: MASKED_FIELD
-  a2f3d.nimMtls.clientKeyPem:
+  hope.a2f3d.nimMtls.clientKeyPem:
     type: string
-    title: NIM client private key (PEM)
+    title: 'HOPE: NIM client private key (PEM)'
     description: Private key for the client certificate above.
+    default: ''
     x-google-marketplace:
       type: MASKED_FIELD
 
-  # ── Feature toggles ─────────────────────────────────────────────────────────
-  seedOnBoot:
+  # ── HOPE live Premium avatars (optional; needs a customer LiveKit) ──────────
+  hope.liveAvatars.enabled:
     type: boolean
-    title: Seed application owner on first boot
-    description: Run the idempotent bootstrap seed to create the initial application owner.
+    title: 'HOPE: enable live Premium avatars'
+    description: Deploy the avatar bridge and connect to your own LiveKit media server for live-video avatar tiers.
+    default: false
+  hope.liveAvatars.signalUrl:
+    type: string
+    title: 'HOPE: LiveKit signalling URL'
+    description: Browser-facing wss:// URL of your LiveKit deployment. Required when live avatars are enabled.
+    default: ''
+  hope.liveAvatars.apiKey:
+    type: string
+    title: 'HOPE: LiveKit API key'
+    description: Key identifier half of the LiveKit API key pair (not a secret).
+    default: ''
+  hope.secrets.livekitApiSecret:
+    type: string
+    title: 'HOPE: LiveKit API secret'
+    description: Secret half of the LiveKit API key pair. Required when live avatars are enabled.
+    default: ''
+    x-google-marketplace:
+      type: MASKED_FIELD
+
+  # ── HOPE workflow sandbox ───────────────────────────────────────────────────
+  # Only `disabled` is offered in this release. The gVisor sandbox for
+  # tenant-authored code creates its own Namespace and RBAC, which the
+  # Marketplace deployer cannot apply (it applies every resource into the
+  # release namespace). Declarative workflows run unaffected; a `code` node
+  # fails with SANDBOX_UNAVAILABLE.
+  hope.workflowSandbox.mode:
+    type: string
+    title: 'HOPE: workflow code sandbox'
+    description: Tenant-authored code execution is not available in this release.
+    default: disabled
+    enum:
+      - disabled
+
+  # ── HOPE feature toggles ────────────────────────────────────────────────────
+  hope.seedOnBoot:
+    type: boolean
+    title: 'HOPE: seed application owner on first boot'
+    description: Run the idempotent bootstrap seed to create the initial HOPE application owner.
     default: true
 
 required:
   - name
   - namespace
-  - gcp.projectId
+  - global.gcp.projectId
+  - global.secrets.redisUrl
+  - global.license.key
   - domains.appUrl
-  - domains.corsOrigin
-  - domains.jwtIssuer
-  - domains.jwtAudience
+  - domains.apiUrl
   - domains.cookieDomain
-  - domains.brandingAssetPublicBaseUrl
   - kms.jwtKmsKeyVersion
   - kms.authDataKmsKey
   - serviceAccounts.apiGsa
-  - serviceAccounts.agentEngineGsa
+  - serviceAccounts.assessmentEngineGsa
+  - serviceAccounts.curriculumEngineGsa
   - secrets.databaseUrl
-  - secrets.redisUrl
-  - secrets.internalSvcJwtPrivateKey
-  - secrets.internalSvcJwtPublicKey
-  - secrets.agentEngineCallbackJwtPublicKey
-  - secrets.apiCallbackJwtPrivateKey
-  - license.key
+  - qdrant.storageClass
+  - hope.domains.appUrl
+  - hope.domains.jwtIssuer
+  - hope.domains.jwtAudience
+  - hope.domains.cookieDomain
+  - hope.kms.jwtKmsKeyVersion
+  - hope.kms.authDataKmsKey
+  - hope.kms.toolCredentialKmsKey
+  - hope.serviceAccounts.apiGsa
+  - hope.serviceAccounts.agentEngineGsa
+  - hope.secrets.databaseUrl
+  - hope.secrets.internalSvcJwtPrivateKey
+  - hope.secrets.internalSvcJwtPublicKey
+  - hope.secrets.agentEngineCallbackJwtPublicKey
+  - hope.secrets.apiCallbackJwtPrivateKey

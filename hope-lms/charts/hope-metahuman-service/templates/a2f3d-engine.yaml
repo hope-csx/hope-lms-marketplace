@@ -5,7 +5,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     app: a2f3d-engine
-    {{- include "hope-lms.labels" . | nindent 4 }}
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
   {{- if .Values.serviceAccounts.a2f3dEngineGsa }}
   annotations:
     iam.gke.io/gcp-service-account: {{ .Values.serviceAccounts.a2f3dEngineGsa | quote }}
@@ -17,11 +17,11 @@ metadata:
   name: a2f3d-engine-config
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "hope-lms.labels" . | nindent 4 }}
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
 data:
   APP_ENV: 'production'
-  DEPLOY_ENV: {{ .Values.gcp.deployEnv | quote }}
-  GCP_PROJECT_ID: {{ .Values.gcp.projectId | quote }}
+  DEPLOY_ENV: {{ include "hope-metahuman-service.deployEnv" . | quote }}
+  GCP_PROJECT_ID: {{ include "hope-metahuman-service.projectId" . | quote }}
   SERVICE_NAME: 'a2f3d-engine'
   HOST: '0.0.0.0'
   PORT: '9005'
@@ -40,7 +40,7 @@ data:
   CONFIG_RECEIVE_TIMEOUT_SECONDS: '30'
   CONNECTION_IDLE_TIMEOUT_SECONDS: '300'
   MAX_REQUESTS_PER_CONNECTION: '50'
-  INTERNAL_SVC_JWT_KID: 'hope-lms-api-v1'
+  INTERNAL_SVC_JWT_KID: 'hope-metahuman-api-v1'
   REDIS_KEY_PREFIX: 'a2f3d-engine:'
   OTEL_SERVICE_NAME: 'a2f3d-engine'
 ---
@@ -51,7 +51,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     app: a2f3d-engine
-    {{- include "hope-lms.labels" . | nindent 4 }}
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
 spec:
   selector:
     app: a2f3d-engine
@@ -69,7 +69,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     app: a2f3d-engine
-    {{- include "hope-lms.labels" . | nindent 4 }}
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.a2f3dEngine.replicas }}
   progressDeadlineSeconds: 1500
@@ -81,6 +81,7 @@ spec:
       labels:
         app: a2f3d-engine
         app.kubernetes.io/instance: {{ .Release.Name }}
+        {{- include "hope-metahuman-service.podLabels" . | nindent 8 }}
     spec:
       serviceAccountName: a2f3d-engine
       securityContext:
@@ -119,9 +120,11 @@ spec:
             requests:
               cpu: '250m'
               memory: '512Mi'
+              ephemeral-storage: '256Mi'
             limits:
               cpu: '1000m'
               memory: '1Gi'
+              ephemeral-storage: '256Mi'
           startupProbe:
             httpGet:
               path: /health
@@ -156,7 +159,7 @@ metadata:
   name: a2f3d-engine
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "hope-lms.labels" . | nindent 4 }}
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
@@ -184,7 +187,7 @@ metadata:
   name: a2f3d-engine-ingress
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "hope-lms.labels" . | nindent 4 }}
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
 spec:
   podSelector:
     matchLabels:

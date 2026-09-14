@@ -5,7 +5,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     app: api
-    {{- include "hope-lms.labels" . | nindent 4 }}
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
   {{- if .Values.serviceAccounts.apiGsa }}
   annotations:
     iam.gke.io/gcp-service-account: {{ .Values.serviceAccounts.apiGsa | quote }}
@@ -17,21 +17,20 @@ metadata:
   name: api-config
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "hope-lms.labels" . | nindent 4 }}
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
 data:
   PORT: '3001'
   NODE_ENV: 'production'
-  CORS_ORIGIN: {{ .Values.domains.corsOrigin | quote }}
-  GCP_PROJECT_ID: {{ .Values.gcp.projectId | quote }}
-  DEPLOY_ENV: {{ .Values.gcp.deployEnv | quote }}
+  GCP_PROJECT_ID: {{ include "hope-metahuman-service.projectId" . | quote }}
+  DEPLOY_ENV: {{ include "hope-metahuman-service.deployEnv" . | quote }}
   JWT_KMS_KEY_VERSION: {{ .Values.kms.jwtKmsKeyVersion | quote }}
   AUTH_DATA_KMS_KEY: {{ .Values.kms.authDataKmsKey | quote }}
+  TOOL_CREDENTIAL_KMS_KEY: {{ .Values.kms.toolCredentialKmsKey | quote }}
   JWT_ISSUER: {{ .Values.domains.jwtIssuer | quote }}
   JWT_AUDIENCE: {{ .Values.domains.jwtAudience | quote }}
   APP_URL: {{ .Values.domains.appUrl | quote }}
   COOKIE_DOMAIN: {{ .Values.domains.cookieDomain | quote }}
   SESSION_COOKIE_NAME: 'hope_session'
-  OKTA_DISPLAY_NAME: {{ .Values.domains.oktaDisplayName | quote }}
   {{- if .Values.domains.oidcOktaRedirectUri }}
   OIDC_OKTA_REDIRECT_URI: {{ .Values.domains.oidcOktaRedirectUri | quote }}
   {{- end }}
@@ -47,14 +46,24 @@ data:
   BOOTSTRAP_APP_OWNER_FIRST_NAME: {{ .Values.bootstrapOwner.firstName | quote }}
   BOOTSTRAP_APP_OWNER_LAST_NAME: {{ .Values.bootstrapOwner.lastName | quote }}
   SEED_ON_BOOT: {{ .Values.seedOnBoot | quote }}
-  AGENT_ENGINE_BASE_URL: 'http://agent-engine.{{ .Release.Namespace }}.{{ include "hope-lms.svcDomain" . }}:8000'
-  A2F3D_ENGINE_BASE_URL: 'ws://a2f3d-engine.{{ .Release.Namespace }}.{{ include "hope-lms.svcDomain" . }}:9005'
+  AGENT_ENGINE_BASE_URL: 'http://agent-engine.{{ .Release.Namespace }}.{{ include "hope-metahuman-service.svcDomain" . }}:8000'
+  A2F3D_ENGINE_BASE_URL: 'ws://a2f3d-engine.{{ .Release.Namespace }}.{{ include "hope-metahuman-service.svcDomain" . }}:9005'
   A2F3D_ENGINE_REQUEST_TIMEOUT_SECONDS: '120'
-  ASSESSMENT_TARGET_URL: 'http://agent-engine.{{ .Release.Namespace }}.{{ include "hope-lms.svcDomain" . }}:8000/internal/assessments/score'
-  ASSESSMENT_CALLBACK_BASE_URL: 'http://api.{{ .Release.Namespace }}.{{ include "hope-lms.svcDomain" . }}'
-  AGENT_ENGINE_CALLBACK_JWT_KID: 'hope-lms-agent-engine-callback-v1'
-  BRANDING_ASSET_MAX_FILE_SIZE_BYTES: '2097152'
-  BRANDING_ASSET_PUBLIC_BASE_URL: {{ .Values.domains.brandingAssetPublicBaseUrl | quote }}
+  APP_INTEGRATIONS_ENABLED: 'false'
+  {{- if .Values.liveAvatars.enabled }}
+  # Live Premium Avatar rendering (ADR 0121). The API refuses to start with a
+  # media server URL and no Premium Avatar credential, so these three arrive
+  # together or not at all — see values.yaml liveAvatars.
+  LIVEKIT_URL: {{ .Values.liveAvatars.signalUrl | quote }}
+  LIVEKIT_API_KEY: {{ .Values.liveAvatars.apiKey | quote }}
+  AVATAR_BRIDGE_BASE_URL: 'ws://avatar-bridge.{{ .Release.Namespace }}.{{ include "hope-metahuman-service.svcDomain" . }}:9010'
+  AVATAR_BRIDGE_REQUEST_TIMEOUT_SECONDS: '120'
+  {{- end }}
+  # Verifies callbacks the agent engine POSTs to the API. Must match
+  # API_CALLBACK_JWT_KID in agent-engine.yaml; bump both in lockstep on
+  # keypair rotation. The hope-lms assessment pipeline does not exist in
+  # this service, so no ASSESSMENT_* variables are set.
+  AGENT_ENGINE_CALLBACK_JWT_KID: 'hope-metahuman-agent-engine-callback-v1'
   # Enforce the offline license gate. Only ever 'true' for Marketplace installs.
   HOPE_LICENSE_ENFORCED: 'true'
 ---
@@ -65,7 +74,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     app: api
-    {{- include "hope-lms.labels" . | nindent 4 }}
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
 spec:
   selector:
     app: api
@@ -83,7 +92,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     app: api
-    {{- include "hope-lms.labels" . | nindent 4 }}
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.api.replicas }}
   progressDeadlineSeconds: 600
@@ -95,6 +104,7 @@ spec:
       labels:
         app: api
         app.kubernetes.io/instance: {{ .Release.Name }}
+        {{- include "hope-metahuman-service.podLabels" . | nindent 8 }}
     spec:
       serviceAccountName: api
       securityContext:
@@ -124,9 +134,11 @@ spec:
             requests:
               cpu: '100m'
               memory: '256Mi'
+              ephemeral-storage: '256Mi'
             limits:
               cpu: '500m'
               memory: '512Mi'
+              ephemeral-storage: '256Mi'
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -151,14 +163,16 @@ spec:
             - secretRef:
                 name: api-secret
             - secretRef:
-                name: hope-lms-license
+                name: hope-metahuman-license
           resources:
             requests:
               cpu: '100m'
               memory: '256Mi'
+              ephemeral-storage: '256Mi'
             limits:
               cpu: '500m'
               memory: '512Mi'
+              ephemeral-storage: '256Mi'
           # /health round-trips to the database, so the default timeoutSeconds
           # of 1 is not enough on the 100m CPU request above once a node is
           # busy — the probe reports a timeout while the API is healthy.
@@ -196,7 +210,7 @@ metadata:
   name: api
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "hope-lms.labels" . | nindent 4 }}
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
 spec:
   scaleTargetRef:
     apiVersion: apps/v1

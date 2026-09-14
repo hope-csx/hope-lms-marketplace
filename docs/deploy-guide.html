@@ -1,0 +1,1145 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>HOPE MTP — Deployment &amp; Configuration Guide</title>
+    <meta
+      name="description"
+      content="How to deploy and configure HOPE MTP 0.2 — the Metahuman Training Platform bundled with the HOPE Metahuman Service — from the Google Cloud Marketplace into your GCP tenant: prerequisites, parameters, license installation, the post-install tenant binding, and operations."
+    />
+    <style>
+      /* Self-contained, dependency-free styles so this file can be dropped on a
+         marketing site or handed to an air-gapped customer with no CDN access. */
+      :root {
+        --brand-primary: #1f3a5f;
+        --brand-accent: #2f6f4f;
+        --ink: #16202c;
+        --muted: #52616b;
+        --line: #d8dee6;
+        --bg: #ffffff;
+        --bg-soft: #f4f6f9;
+        --warn-bg: #fff7e6;
+        --warn-line: #e0a93b;
+        --danger-bg: #fdecec;
+        --danger-line: #cc4b4b;
+        --code-bg: #f0f2f5;
+        --maxw: 62rem;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        scroll-behavior: smooth;
+      }
+      body {
+        margin: 0;
+        color: var(--ink);
+        background: var(--bg);
+        font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          Helvetica, Arial, sans-serif;
+      }
+      .skip-link {
+        position: absolute;
+        left: -999px;
+        top: 0;
+        background: var(--brand-primary);
+        color: #fff;
+        padding: 0.5rem 1rem;
+        z-index: 10;
+      }
+      .skip-link:focus {
+        left: 0;
+      }
+      header.masthead {
+        background: var(--brand-primary);
+        color: #fff;
+        padding: 2rem 1.25rem;
+      }
+      header.masthead .wrap {
+        max-width: var(--maxw);
+        margin: 0 auto;
+      }
+      header.masthead h1 {
+        margin: 0 0 0.35rem;
+        font-size: 1.9rem;
+        letter-spacing: 0.01em;
+      }
+      header.masthead p {
+        margin: 0;
+        color: #d6e0ec;
+      }
+      .layout {
+        max-width: var(--maxw);
+        margin: 0 auto;
+        padding: 0 1.25rem 4rem;
+      }
+      nav.toc {
+        background: var(--bg-soft);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 1rem 1.25rem;
+        margin: 1.75rem 0;
+      }
+      nav.toc h2 {
+        margin: 0 0 0.5rem;
+        font-size: 1rem;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: var(--muted);
+      }
+      nav.toc ol {
+        margin: 0;
+        padding-left: 1.25rem;
+        columns: 2;
+      }
+      nav.toc a {
+        color: var(--brand-primary);
+        text-decoration: none;
+      }
+      nav.toc a:hover,
+      nav.toc a:focus {
+        text-decoration: underline;
+      }
+      section {
+        margin: 2.5rem 0;
+      }
+      h2 {
+        font-size: 1.45rem;
+        border-bottom: 2px solid var(--line);
+        padding-bottom: 0.35rem;
+        margin-top: 2.5rem;
+      }
+      h3 {
+        font-size: 1.15rem;
+        margin-top: 1.75rem;
+      }
+      a {
+        color: var(--brand-primary);
+      }
+      code,
+      kbd,
+      pre {
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo,
+          monospace;
+        font-size: 0.9em;
+      }
+      code {
+        background: var(--code-bg);
+        padding: 0.1rem 0.35rem;
+        border-radius: 4px;
+      }
+      pre {
+        background: var(--code-bg);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 1rem;
+        overflow-x: auto;
+        line-height: 1.5;
+      }
+      pre code {
+        background: none;
+        padding: 0;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        margin: 1rem 0;
+        font-size: 0.94rem;
+      }
+      caption {
+        text-align: left;
+        color: var(--muted);
+        font-style: italic;
+        margin-bottom: 0.5rem;
+      }
+      th,
+      td {
+        border: 1px solid var(--line);
+        padding: 0.55rem 0.7rem;
+        text-align: left;
+        vertical-align: top;
+      }
+      thead th {
+        background: var(--bg-soft);
+      }
+      tbody th {
+        font-weight: 600;
+        white-space: nowrap;
+      }
+      .req {
+        color: var(--danger-line);
+        font-weight: 700;
+      }
+      .callout {
+        border-left: 4px solid var(--brand-accent);
+        background: var(--bg-soft);
+        padding: 0.85rem 1.1rem;
+        border-radius: 0 6px 6px 0;
+        margin: 1.25rem 0;
+      }
+      .callout.warn {
+        border-left-color: var(--warn-line);
+        background: var(--warn-bg);
+      }
+      .callout.danger {
+        border-left-color: var(--danger-line);
+        background: var(--danger-bg);
+      }
+      .callout p:first-child {
+        margin-top: 0;
+      }
+      .callout p:last-child {
+        margin-bottom: 0;
+      }
+      ol.steps > li {
+        margin-bottom: 0.75rem;
+      }
+      footer.pagefoot {
+        max-width: var(--maxw);
+        margin: 0 auto;
+        padding: 1.5rem 1.25rem 3rem;
+        color: var(--muted);
+        border-top: 1px solid var(--line);
+        font-size: 0.9rem;
+      }
+      .back-to-top {
+        font-size: 0.85rem;
+        margin-left: 0.75rem;
+      }
+      @media (max-width: 640px) {
+        nav.toc ol {
+          columns: 1;
+        }
+      }
+      @media print {
+        header.masthead {
+          background: none;
+          color: #000;
+          border-bottom: 2px solid #000;
+        }
+        header.masthead p {
+          color: #000;
+        }
+        nav.toc,
+        .skip-link,
+        .back-to-top {
+          display: none;
+        }
+        a {
+          color: #000;
+          text-decoration: underline;
+        }
+        pre,
+        table {
+          page-break-inside: avoid;
+        }
+        body {
+          font-size: 12px;
+        }
+      }
+    </style>
+  </head>
+<body>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="masthead">
+      <div class="wrap">
+        <h1>HOPE MTP — Deployment &amp; Configuration Guide</h1>
+        <p>Deploying and operating the Metahuman Training Platform and the bundled HOPE Metahuman Service from Google Cloud Marketplace — version 0.2.</p>
+      </div>
+    </header>
+
+    <div class="layout">
+      
+      <nav class="toc" aria-label="Contents">
+        <h2>Contents</h2>
+        <ol>
+          <li><a href="#overview">Overview &amp; architecture</a></li>
+          <li><a href="#prereqs">Prerequisites in your GCP tenant</a></li>
+          <li><a href="#license-obtain">Obtaining &amp; installing the license</a></li>
+          <li><a href="#deploy">Marketplace deployment (Console flow)</a></li>
+          <li><a href="#params">Parameter reference</a></li>
+          <li><a href="#verify">Post-deploy verification</a></li>
+          <li><a href="#bind">Connect your training tenant to HOPE</a></li>
+          <li><a href="#ingress">DNS, ingress &amp; TLS</a></li>
+          <li><a href="#license-ops">License lifecycle &amp; operations</a></li>
+          <li><a href="#troubleshooting">Troubleshooting</a></li>
+          <li><a href="#upgrade">Upgrading from 0.1.x, uninstalling</a></li>
+          <li><a href="#support">Support</a></li>
+        </ol>
+      </nav>
+
+      <main id="main">
+        <section id="overview">
+          <h2>1. Overview &amp; architecture</h2>
+          <p>
+            HOPE MTP 0.2 is one Google Cloud Marketplace Kubernetes application that installs two
+            products into a single namespace of your GKE cluster:
+          </p>
+          <ul>
+            <li>
+              <strong>The Metahuman Training Platform (MTP)</strong> — <code>mtp-web</code> (the
+              learner, author and administrator portal), <code>mtp-api</code> (the control plane
+              and sole database owner), <code>mtp-session-gateway</code> (the WebSocket broker
+              for live sessions), <code>mtp-assessment-engine</code> and
+              <code>mtp-curriculum-engine</code> (Vertex AI inference), and an in-cluster
+              <code>qdrant</code> vector store.
+            </li>
+            <li>
+              <strong>The HOPE Metahuman Service</strong> it runs on — <code>api</code>,
+              <code>admin-web</code>, <code>agent-engine</code> and <code>a2f3d-engine</code>, plus
+              the optional <code>avatar-bridge</code> for live-video avatar tiers.
+            </li>
+          </ul>
+          <p>
+            Every Service is <code>ClusterIP</code>; you provide DNS, ingress and TLS (section 8).
+            Cloud SQL, Memorystore, Cloud KMS and the NVIDIA Audio2Face-3D NIM are prerequisites
+            in your project (section 2). One offline license unlocks both products (section 3).
+            After install, one manual step connects your training tenant to the bundled HOPE
+            (section 7).
+          </p>
+        </section>
+
+        <section id="prereqs">
+          <h2>2. Prerequisites in your GCP tenant</h2>
+          <ol>
+            <li><strong>GKE cluster</strong> (Autopilot or Standard) with Workload Identity and a network-policy-capable dataplane (Dataplane V2).</li>
+            <li><strong>Cloud SQL for PostgreSQL 16</strong> with <em>two databases</em> — one for MTP, one for HOPE — on one instance or two. Supply each as a connection URL (<code>secrets.databaseUrl</code>, <code>hope.secrets.databaseUrl</code>). The two products must never share a database.</li>
+            <li><strong>Memorystore for Redis</strong>, one instance, shared (<code>global.secrets.redisUrl</code>).</li>
+            <li><strong>Cloud KMS</strong>: for MTP an <code>ASYMMETRIC_SIGN</code> key version and an <code>ENCRYPT_DECRYPT</code> key; for HOPE an <code>ASYMMETRIC_SIGN</code> key version and two <code>ENCRYPT_DECRYPT</code> keys (auth-data and tool-credentials). HSM-backed, rotation ≤ 90 days.</li>
+            <li><strong>GCP service accounts</strong> bound to the Kubernetes ServiceAccounts via Workload Identity: at minimum <code>mtp-api</code>, <code>mtp-assessment-engine</code>, <code>mtp-curriculum-engine</code>, HOPE <code>api</code> and HOPE <code>agent-engine</code>. Grant KMS on the respective keys, <code>roles/aiplatform.user</code> to the two MTP engines and HOPE's agent-engine, Document AI and GCS only where you configure them.</li>
+            <li><strong>Private Google Access</strong> on the subnet so pods reach Google APIs without internet egress.</li>
+            <li><strong>An SSD-backed StorageClass</strong> for the 20 GiB Qdrant volume (<code>qdrant.storageClass</code>).</li>
+            <li><strong>Two RS256 keypairs</strong> for HOPE's service-to-service tokens (section 5, HOPE connection strings) — generate with <code>openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048</code>.</li>
+            <li><strong>A valid HOPE MTP license</strong> (section 3).</li>
+            <li><em>(optional avatar tier)</em> a reachable NVIDIA Audio2Face-3D NIM with its own NGC entitlement, and its mTLS certificates.</li>
+          </ol>
+        </section>
+
+        <section id="license-obtain">
+          <h2>3. Obtaining &amp; installing your license</h2>
+          <p>
+            Contact CornerstoneX with your organization name and intended term. You receive a
+            single-line signed license blob. Paste it into the <code>global.license.key</code>
+            parameter during deployment; it is stored as the Kubernetes Secrets
+            <code>hope-lms-license</code> (MTP) and <code>hope-metahuman-license</code> (HOPE)
+            and verified offline by both APIs against a public key embedded in their images — no
+            license server is contacted.
+          </p>
+          <div class="callout warn">
+            <strong>Without a valid, unexpired license neither API starts.</strong> Both pods
+            enter CrashLoopBackOff and log <code>LICENSE_VALIDATION_FAILED</code>. A license issued
+            for HOPE MTP 0.1 is valid for 0.2.
+          </div>
+        </section>
+
+        <section id="deploy">
+          <h2>4. Marketplace deployment (Console flow)</h2>
+          <ol>
+            <li>Open the HOPE MTP listing in Google Cloud Marketplace and choose <strong>Configure</strong>.</li>
+            <li>Select your cluster and a new namespace. Do not reuse a namespace holding a 0.1.x install (section 11).</li>
+            <li>Fill in the parameters (section 5). Everything marked <em>Generated</em> is created for you.</li>
+            <li>Deploy. The install reports ready once every workload is Running and the Qdrant volume is bound; allow up to 25 minutes on a cold cluster.</li>
+          </ol>
+        </section>
+
+        <section id="params">
+          <h2>5. Parameter reference</h2>
+          <p>Parameters prefixed <code>hope.</code> configure the bundled HOPE Metahuman Service; those prefixed <code>global.</code> are shared by both products.</p>
+          <h3>Installation</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Parameter</th><th>Title</th><th>Kind</th><th>Required</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+              <tr>
+                <td><code>name</code></td>
+                <td>—</td>
+                <td>name</td>
+                <td>Required</td>
+                <td></td>
+              </tr>
+              <tr>
+                <td><code>namespace</code></td>
+                <td>—</td>
+                <td>namespace</td>
+                <td>Required</td>
+                <td></td>
+              </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Shared by both products</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Parameter</th><th>Title</th><th>Kind</th><th>Required</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+              <tr>
+                <td><code>global.gcp.projectId</code></td>
+                <td>GCP project ID</td>
+                <td>string</td>
+                <td>Required</td>
+                <td>The GCP project ID of the tenant HOPE MTP is deployed into. Used by both products to resolve Cloud KMS keys and Google AI endpoints.</td>
+              </tr>
+              <tr>
+                <td><code>global.gcp.deployEnv</code></td>
+                <td>Deployment tier</td>
+                <td>string</td>
+                <td>Optional</td>
+                <td>Deployment target tier. Keep as 'prod' for Marketplace installs. Allowed: prod, staging. Default: <code>prod</code>.</td>
+              </tr>
+              <tr>
+                <td><code>global.secrets.redisUrl</code></td>
+                <td>Redis (Memorystore) URL</td>
+                <td>secret</td>
+                <td>Required</td>
+                <td>Memorystore for Redis connection URL, including any AUTH token. One instance serves both products (HOPE prefixes its keys).</td>
+              </tr>
+              <tr>
+                <td><code>global.license.key</code></td>
+                <td>HOPE MTP license</td>
+                <td>secret</td>
+                <td>Required</td>
+                <td>The signed license blob issued to your organization by CornerstoneX. One license covers the training platform and the bundled HOPE Metahuman Service; without a valid, unexpired license neither will start.</td>
+              </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>MTP — public URLs</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Parameter</th><th>Title</th><th>Kind</th><th>Required</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+              <tr>
+                <td><code>domains.appUrl</code></td>
+                <td>MTP web app URL</td>
+                <td>string</td>
+                <td>Required</td>
+                <td>Absolute browser-facing URL of the training portal, e.g. https://train.agency.gov</td>
+              </tr>
+              <tr>
+                <td><code>domains.apiUrl</code></td>
+                <td>MTP API URL</td>
+                <td>string</td>
+                <td>Required</td>
+                <td>Absolute public URL of the MTP api, e.g. https://api.train.agency.gov. Used as the JWT issuer, the OIDC callback origin and the browser API URL.</td>
+              </tr>
+              <tr>
+                <td><code>domains.cookieDomain</code></td>
+                <td>MTP cookie domain</td>
+                <td>string</td>
+                <td>Required</td>
+                <td>Parent domain shared by the MTP web and API hosts, e.g. agency.gov</td>
+              </tr>
+              <tr>
+                <td><code>domains.gatewayWsUrl</code></td>
+                <td>MTP live-session WebSocket URL</td>
+                <td>string</td>
+                <td>Optional</td>
+                <td>Browser-facing wss:// URL for live training sessions. Leave empty to use wss://<MTP API host>/ws — your ingress must then route /ws on the API host to the mtp-session-gateway Service.</td>
+              </tr>
+              <tr>
+                <td><code>domains.hopeApiUrl</code></td>
+                <td>HOPE API public URL (for MTP)</td>
+                <td>string</td>
+                <td>Optional</td>
+                <td>Public URL of the bundled HOPE api as MTP tenants will reach it. Leave empty to use the HOPE JWT issuer below.</td>
+              </tr>
+              <tr>
+                <td><code>domains.oidcPostLoginRedirect</code></td>
+                <td>MTP OIDC post-login redirect</td>
+                <td>string</td>
+                <td>Optional</td>
+                <td>URL the browser is sent to after successful SSO (optional; defaults to the web app URL).</td>
+              </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>MTP — Cloud KMS</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Parameter</th><th>Title</th><th>Kind</th><th>Required</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+              <tr>
+                <td><code>kms.jwtKmsKeyVersion</code></td>
+                <td>MTP JWT signing KMS key version</td>
+                <td>string</td>
+                <td>Required</td>
+                <td>Fully-qualified Cloud KMS cryptoKeyVersion used to sign MTP access tokens (projects/.../cryptoKeyVersions/N). Must be an ASYMMETRIC_SIGN key.</td>
+              </tr>
+              <tr>
+                <td><code>kms.authDataKmsKey</code></td>
+                <td>MTP auth-data KMS key</td>
+                <td>string</td>
+                <td>Required</td>
+                <td>Fully-qualified Cloud KMS cryptoKey used to wrap MTP TOTP secrets and other auth data (projects/.../cryptoKeys/auth-data). Must be ENCRYPT_DECRYPT.</td>
+              </tr>
+              <tr>
+                <td><code>kms.curriculumDataKmsKey</code></td>
+                <td>MTP curriculum-data KMS key</td>
+                <td>string</td>
+                <td>Optional</td>
+                <td>Optional dedicated ENCRYPT_DECRYPT key for uploaded learner documents and their extractions. Leave empty to use the auth-data key.</td>
+              </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>MTP — Workload Identity</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Parameter</th><th>Title</th><th>Kind</th><th>Required</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+              <tr>
+                <td><code>serviceAccounts.apiGsa</code></td>
+                <td>MTP API GCP service account</td>
+                <td>string</td>
+                <td>Required</td>
+                <td>Email of the GSA bound to the mtp-api ServiceAccount (needs Cloud KMS; GCS if a documents bucket is set).</td>
+              </tr>
+              <tr>
+                <td><code>serviceAccounts.webGsa</code></td>
+                <td>MTP web GCP service account</td>
+                <td>string</td>
+                <td>Optional</td>
+                <td>Email of the GSA bound to the mtp-web ServiceAccount (optional; the portal calls no Google API).</td>
+              </tr>
+              <tr>
+                <td><code>serviceAccounts.sessionGatewayGsa</code></td>
+                <td>MTP session-gateway GCP service account</td>
+                <td>string</td>
+                <td>Optional</td>
+                <td>Email of the GSA bound to the mtp-session-gateway ServiceAccount (optional).</td>
+              </tr>
+              <tr>
+                <td><code>serviceAccounts.assessmentEngineGsa</code></td>
+                <td>MTP assessment-engine GCP service account</td>
+                <td>string</td>
+                <td>Required</td>
+                <td>Email of the GSA bound to the mtp-assessment-engine ServiceAccount (needs Vertex AI).</td>
+              </tr>
+              <tr>
+                <td><code>serviceAccounts.curriculumEngineGsa</code></td>
+                <td>MTP curriculum-engine GCP service account</td>
+                <td>string</td>
+                <td>Required</td>
+                <td>Email of the GSA bound to the mtp-curriculum-engine ServiceAccount (needs Vertex AI; Document AI and GCS when configured).</td>
+              </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>MTP — connection strings, credentials and generated secrets</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Parameter</th><th>Title</th><th>Kind</th><th>Required</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+              <tr>
+                <td><code>secrets.databaseUrl</code></td>
+                <td>MTP PostgreSQL connection URL</td>
+                <td>secret</td>
+                <td>Required</td>
+                <td>Cloud SQL (PostgreSQL 16) connection URL for the MTP database, including credentials.</td>
+              </tr>
+              <tr>
+                <td><code>secrets.smtpPassword</code></td>
+                <td>MTP SMTP password</td>
+                <td>secret</td>
+                <td>Optional</td>
+                <td>Password / App Password for transactional mail (required when an SMTP user is set).</td>
+              </tr>
+              <tr>
+                <td><code>secrets.bootstrapOwnerPassword</code></td>
+                <td>MTP bootstrap owner password</td>
+                <td>secret</td>
+                <td>Optional</td>
+                <td>Initial password for the bootstrap application owner (at least 14 characters). Optional.</td>
+              </tr>
+              <tr>
+                <td><code>secrets.sessionPepper</code></td>
+                <td>—</td>
+                <td>auto-generated</td>
+                <td>Generated</td>
+                <td></td>
+              </tr>
+              <tr>
+                <td><code>secrets.invitationPepper</code></td>
+                <td>—</td>
+                <td>auto-generated</td>
+                <td>Generated</td>
+                <td></td>
+              </tr>
+              <tr>
+                <td><code>secrets.ipHashPepper</code></td>
+                <td>—</td>
+                <td>auto-generated</td>
+                <td>Generated</td>
+                <td></td>
+              </tr>
+              <tr>
+                <td><code>secrets.apiKeySecretPepper</code></td>
+                <td>—</td>
+                <td>auto-generated</td>
+                <td>Generated</td>
+                <td></td>
+              </tr>
+              <tr>
+                <td><code>secrets.gatewayServiceToken</code></td>
+                <td>—</td>
+                <td>auto-generated</td>
+                <td>Generated</td>
+                <td></td>
+              </tr>
+              <tr>
+                <td><code>secrets.assessmentEngineToken</code></td>
+                <td>—</td>
+                <td>auto-generated</td>
+                <td>Generated</td>
+                <td></td>
+              </tr>
+              <tr>
+                <td><code>secrets.curriculumEngineToken</code></td>
+                <td>—</td>
+                <td>auto-generated</td>
+                <td>Generated</td>
+                <td></td>
+              </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>MTP — mail, Document AI, storage</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Parameter</th><th>Title</th><th>Kind</th><th>Required</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+              <tr>
+                <td><code>mail.smtpHost</code></td>
+                <td>MTP SMTP host</td>
+                <td>string</td>
+                <td>Optional</td>
+                <td>SMTP relay for invitations and password resets (STARTTLS on 587 or implicit TLS on 465). Leave empty to disable mail.</td>
+              </tr>
+              <tr>
+                <td><code>mail.smtpPort</code></td>
+                <td>MTP SMTP port</td>
+                <td>integer</td>
+                <td>Optional</td>
+                <td> Default: <code>587</code>.</td>
+              </tr>
+              <tr>
+                <td><code>mail.smtpUser</code></td>
+                <td>MTP SMTP user</td>
+                <td>string</td>
+                <td>Optional</td>
+                <td></td>
+              </tr>
+              <tr>
+                <td><code>mail.from</code></td>
+                <td>MTP sender address</td>
+                <td>string</td>
+                <td>Optional</td>
+                <td>From address for transactional mail, e.g. no-reply@agency.gov.</td>
+              </tr>
+              <tr>
+                <td><code>docai.processorId</code></td>
+                <td>Document AI processor ID</td>
+                <td>string</td>
+                <td>Optional</td>
+                <td>Form Parser processor in your project used to extract uploaded documents. Leave empty to use the built-in text analyzer instead of Document AI.</td>
+              </tr>
+              <tr>
+                <td><code>docai.location</code></td>
+                <td>Document AI location</td>
+                <td>string</td>
+                <td>Optional</td>
+                <td> Default: <code>us</code>.</td>
+              </tr>
+              <tr>
+                <td><code>storage.documentsBucket</code></td>
+                <td>MTP documents bucket</td>
+                <td>string</td>
+                <td>Optional</td>
+                <td>GCS bucket (bare name) for uploaded learner documents. Leave empty to store document bytes in the database.</td>
+              </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>Qdrant vector store</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Parameter</th><th>Title</th><th>Kind</th><th>Required</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+              <tr>
+                <td><code>qdrant.storageClass</code></td>
+                <td>Qdrant storage class</td>
+                <td>storage class</td>
+                <td>Required</td>
+                <td>StorageClass for the vector index volume. SSD-backed persistent disk is recommended.</td>
+              </tr>
+              <tr>
+                <td><code>qdrant.storageSize</code></td>
+                <td>Qdrant volume size</td>
+                <td>string</td>
+                <td>Optional</td>
+                <td>Size of the vector index volume, e.g. 20Gi. Default: <code>20Gi</code>.</td>
+              </tr>
+              <tr>
+                <td><code>qdrant.apiKey</code></td>
+                <td>—</td>
+                <td>auto-generated</td>
+                <td>Generated</td>
+                <td></td>
+              </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>MTP — feature toggles</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Parameter</th><th>Title</th><th>Kind</th><th>Required</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+              <tr>
+                <td><code>seedOnBoot</code></td>
+                <td>MTP: seed application owner on first boot</td>
+                <td>boolean</td>
+                <td>Optional</td>
+                <td>Run the idempotent bootstrap seed to create the initial MTP application owner. Default: <code>True</code>.</td>
+              </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>HOPE — public URLs</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Parameter</th><th>Title</th><th>Kind</th><th>Required</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+              <tr>
+                <td><code>hope.domains.appUrl</code></td>
+                <td>HOPE: admin portal URL</td>
+                <td>string</td>
+                <td>Required</td>
+                <td>Absolute browser-facing URL of the HOPE admin portal, e.g. https://metahuman.agency.gov</td>
+              </tr>
+              <tr>
+                <td><code>hope.domains.jwtIssuer</code></td>
+                <td>HOPE: API URL (JWT issuer)</td>
+                <td>string</td>
+                <td>Required</td>
+                <td>Absolute HOPE API URL, e.g. https://api.metahuman.agency.gov. Also used as the browser API URL.</td>
+              </tr>
+              <tr>
+                <td><code>hope.domains.jwtAudience</code></td>
+                <td>HOPE: JWT audience</td>
+                <td>string</td>
+                <td>Required</td>
+                <td>HOPE JWT audience. Normally identical to the HOPE admin portal URL.</td>
+              </tr>
+              <tr>
+                <td><code>hope.domains.cookieDomain</code></td>
+                <td>HOPE: cookie domain</td>
+                <td>string</td>
+                <td>Required</td>
+                <td>Parent domain shared by the HOPE web and API hosts, e.g. agency.gov</td>
+              </tr>
+              <tr>
+                <td><code>hope.domains.oidcOktaRedirectUri</code></td>
+                <td>HOPE: OIDC redirect URI</td>
+                <td>string</td>
+                <td>Optional</td>
+                <td>Platform-wide OIDC callback URL registered with your IdP (optional; only if using SSO for HOPE).</td>
+              </tr>
+              <tr>
+                <td><code>hope.domains.oidcOktaPostLoginRedirect</code></td>
+                <td>HOPE: OIDC post-login redirect</td>
+                <td>string</td>
+                <td>Optional</td>
+                <td>URL the browser is sent to after successful SSO (optional; defaults to the HOPE admin portal URL).</td>
+              </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>HOPE — Cloud KMS</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Parameter</th><th>Title</th><th>Kind</th><th>Required</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+              <tr>
+                <td><code>hope.kms.jwtKmsKeyVersion</code></td>
+                <td>HOPE: JWT signing KMS key version</td>
+                <td>string</td>
+                <td>Required</td>
+                <td>Fully-qualified Cloud KMS cryptoKeyVersion used to sign HOPE access tokens. Must be an ASYMMETRIC_SIGN key.</td>
+              </tr>
+              <tr>
+                <td><code>hope.kms.authDataKmsKey</code></td>
+                <td>HOPE: auth-data KMS key</td>
+                <td>string</td>
+                <td>Required</td>
+                <td>Fully-qualified Cloud KMS cryptoKey used to wrap HOPE TOTP secrets and auth data. Must be ENCRYPT_DECRYPT.</td>
+              </tr>
+              <tr>
+                <td><code>hope.kms.toolCredentialKmsKey</code></td>
+                <td>HOPE: tool-credential KMS key</td>
+                <td>string</td>
+                <td>Required</td>
+                <td>Fully-qualified Cloud KMS cryptoKey used to wrap tenant-supplied tool credentials. Must differ from the auth-data key so a tenant credential can be revoked without invalidating live sessions.</td>
+              </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>HOPE — Workload Identity</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Parameter</th><th>Title</th><th>Kind</th><th>Required</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+              <tr>
+                <td><code>hope.serviceAccounts.apiGsa</code></td>
+                <td>HOPE: API GCP service account</td>
+                <td>string</td>
+                <td>Required</td>
+                <td>Email of the GSA bound to the HOPE api ServiceAccount (needs Cloud KMS).</td>
+              </tr>
+              <tr>
+                <td><code>hope.serviceAccounts.adminWebGsa</code></td>
+                <td>HOPE: admin-web GCP service account</td>
+                <td>string</td>
+                <td>Optional</td>
+                <td>Email of the GSA bound to the HOPE admin-web ServiceAccount (optional).</td>
+              </tr>
+              <tr>
+                <td><code>hope.serviceAccounts.agentEngineGsa</code></td>
+                <td>HOPE: agent-engine GCP service account</td>
+                <td>string</td>
+                <td>Required</td>
+                <td>Email of the GSA bound to the HOPE agent-engine ServiceAccount (needs Vertex AI).</td>
+              </tr>
+              <tr>
+                <td><code>hope.serviceAccounts.a2f3dEngineGsa</code></td>
+                <td>HOPE: A2F-3D engine GCP service account</td>
+                <td>string</td>
+                <td>Optional</td>
+                <td>Email of the GSA bound to the HOPE a2f3d-engine ServiceAccount (optional).</td>
+              </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>HOPE — connection strings, keypairs and generated secrets</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Parameter</th><th>Title</th><th>Kind</th><th>Required</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+              <tr>
+                <td><code>hope.secrets.databaseUrl</code></td>
+                <td>HOPE: PostgreSQL connection URL</td>
+                <td>secret</td>
+                <td>Required</td>
+                <td>Cloud SQL (PostgreSQL 16) connection URL for the HOPE database, including credentials. Use a separate database from the MTP one (the same instance is fine).</td>
+              </tr>
+              <tr>
+                <td><code>hope.secrets.internalSvcJwtPrivateKey</code></td>
+                <td>HOPE: internal service JWT private key (PEM)</td>
+                <td>secret</td>
+                <td>Required</td>
+                <td>RS256 private key the HOPE api uses to sign internal service-to-service tokens.</td>
+              </tr>
+              <tr>
+                <td><code>hope.secrets.internalSvcJwtPublicKey</code></td>
+                <td>HOPE: internal service JWT public key (PEM)</td>
+                <td>secret</td>
+                <td>Required</td>
+                <td>Matching RS256 public key the HOPE engines use to verify api tokens.</td>
+              </tr>
+              <tr>
+                <td><code>hope.secrets.agentEngineCallbackJwtPublicKey</code></td>
+                <td>HOPE: agent-engine callback public key (PEM)</td>
+                <td>secret</td>
+                <td>Required</td>
+                <td>RS256 public key the HOPE api uses to verify callbacks from the agent-engine.</td>
+              </tr>
+              <tr>
+                <td><code>hope.secrets.apiCallbackJwtPrivateKey</code></td>
+                <td>HOPE: agent-engine callback private key (PEM)</td>
+                <td>secret</td>
+                <td>Required</td>
+                <td>Matching RS256 private key the HOPE agent-engine uses to sign callbacks to the api.</td>
+              </tr>
+              <tr>
+                <td><code>hope.secrets.protofaceApiKey</code></td>
+                <td>HOPE: Premium avatar provider API key</td>
+                <td>secret</td>
+                <td>Optional</td>
+                <td>Optional. Enables the Premium live-video avatar tier and the custom-avatar builder.</td>
+              </tr>
+              <tr>
+                <td><code>hope.secrets.trugenApiKey</code></td>
+                <td>HOPE: Ultra Premium avatar provider API key</td>
+                <td>secret</td>
+                <td>Optional</td>
+                <td>Optional. Enables the Ultra Premium live-video avatar tier.</td>
+              </tr>
+              <tr>
+                <td><code>hope.secrets.avaturnApiToken</code></td>
+                <td>HOPE: Standard 3D avatar creator token</td>
+                <td>secret</td>
+                <td>Optional</td>
+                <td>Optional. Enables the self-service Standard 3D avatar builder.</td>
+              </tr>
+              <tr>
+                <td><code>hope.secrets.avaturnWebhookSecret</code></td>
+                <td>HOPE: avatar creator webhook secret</td>
+                <td>secret</td>
+                <td>Optional</td>
+                <td>Optional. Signing secret (whsec_...) for the avatar creator's build notifications.</td>
+              </tr>
+              <tr>
+                <td><code>hope.secrets.sessionPepper</code></td>
+                <td>—</td>
+                <td>auto-generated</td>
+                <td>Generated</td>
+                <td></td>
+              </tr>
+              <tr>
+                <td><code>hope.secrets.invitationPepper</code></td>
+                <td>—</td>
+                <td>auto-generated</td>
+                <td>Generated</td>
+                <td></td>
+              </tr>
+              <tr>
+                <td><code>hope.secrets.ipHashPepper</code></td>
+                <td>—</td>
+                <td>auto-generated</td>
+                <td>Generated</td>
+                <td></td>
+              </tr>
+              <tr>
+                <td><code>hope.secrets.captchaHmacKey</code></td>
+                <td>—</td>
+                <td>auto-generated</td>
+                <td>Generated</td>
+                <td></td>
+              </tr>
+              <tr>
+                <td><code>hope.secrets.livekitApiSecret</code></td>
+                <td>HOPE: LiveKit API secret</td>
+                <td>secret</td>
+                <td>Optional</td>
+                <td>Secret half of the LiveKit API key pair. Required when live avatars are enabled.</td>
+              </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>HOPE — NVIDIA Audio2Face-3D NIM</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Parameter</th><th>Title</th><th>Kind</th><th>Required</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+              <tr>
+                <td><code>hope.a2f3d.nimUrl</code></td>
+                <td>HOPE: NVIDIA NIM endpoint</td>
+                <td>string</td>
+                <td>Optional</td>
+                <td>gRPC endpoint of your NVIDIA Audio2Face-3D NIM. Not shipped or managed by this app. Default: <code>nim-a2f3d.hope-metahuman.svc.cluster.local:52000</code>.</td>
+              </tr>
+              <tr>
+                <td><code>hope.a2f3d.nimSecureMode</code></td>
+                <td>HOPE: NIM transport security</td>
+                <td>string</td>
+                <td>Optional</td>
+                <td>Authenticate to the NIM with client certificates. Supply the certificates below. Allowed: mtls. Default: <code>mtls</code>.</td>
+              </tr>
+              <tr>
+                <td><code>hope.a2f3d.nimMtls.rootCaPem</code></td>
+                <td>HOPE: NIM root CA certificate (PEM)</td>
+                <td>secret</td>
+                <td>Optional</td>
+                <td>CA certificate that signed your NIM server certificate. Optional until the avatar tier is used.</td>
+              </tr>
+              <tr>
+                <td><code>hope.a2f3d.nimMtls.clientCertPem</code></td>
+                <td>HOPE: NIM client certificate (PEM)</td>
+                <td>secret</td>
+                <td>Optional</td>
+                <td>Client certificate the avatar engine presents to your NIM.</td>
+              </tr>
+              <tr>
+                <td><code>hope.a2f3d.nimMtls.clientKeyPem</code></td>
+                <td>HOPE: NIM client private key (PEM)</td>
+                <td>secret</td>
+                <td>Optional</td>
+                <td>Private key for the client certificate above.</td>
+              </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>HOPE — live Premium avatars and workflow sandbox</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Parameter</th><th>Title</th><th>Kind</th><th>Required</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+              <tr>
+                <td><code>hope.liveAvatars.enabled</code></td>
+                <td>HOPE: enable live Premium avatars</td>
+                <td>boolean</td>
+                <td>Optional</td>
+                <td>Deploy the avatar bridge and connect to your own LiveKit media server for live-video avatar tiers. Default: <code>False</code>.</td>
+              </tr>
+              <tr>
+                <td><code>hope.liveAvatars.signalUrl</code></td>
+                <td>HOPE: LiveKit signalling URL</td>
+                <td>string</td>
+                <td>Optional</td>
+                <td>Browser-facing wss:// URL of your LiveKit deployment. Required when live avatars are enabled.</td>
+              </tr>
+              <tr>
+                <td><code>hope.liveAvatars.apiKey</code></td>
+                <td>HOPE: LiveKit API key</td>
+                <td>string</td>
+                <td>Optional</td>
+                <td>Key identifier half of the LiveKit API key pair (not a secret).</td>
+              </tr>
+              <tr>
+                <td><code>hope.workflowSandbox.mode</code></td>
+                <td>HOPE: workflow code sandbox</td>
+                <td>string</td>
+                <td>Optional</td>
+                <td>Tenant-authored code execution is not available in this release. Allowed: disabled. Default: <code>disabled</code>.</td>
+              </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h3>HOPE — feature toggles</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr><th>Parameter</th><th>Title</th><th>Kind</th><th>Required</th><th>Description</th></tr>
+              </thead>
+              <tbody>
+              <tr>
+                <td><code>hope.seedOnBoot</code></td>
+                <td>HOPE: seed application owner on first boot</td>
+                <td>boolean</td>
+                <td>Optional</td>
+                <td>Run the idempotent bootstrap seed to create the initial HOPE application owner. Default: <code>True</code>.</td>
+              </tr>
+              </tbody>
+            </table>
+          </div>
+
+        </section>
+
+        <section id="verify">
+          <h2>6. Post-deploy verification</h2>
+          <pre><code>kubectl -n &lt;namespace&gt; get pods
+kubectl -n &lt;namespace&gt; get application
+kubectl -n &lt;namespace&gt; logs deploy/mtp-api -c api | grep LICENSE_
+kubectl -n &lt;namespace&gt; logs deploy/api | grep LICENSE_</code></pre>
+          <p>Both logs must show <code>LICENSE_VALIDATED</code>. Then browse to your MTP web URL and your HOPE admin URL and sign in as each product's bootstrap application owner.</p>
+        </section>
+
+        <section id="bind">
+          <h2>7. Connect your training tenant to HOPE</h2>
+          <p>
+            The chart deploys HOPE alongside MTP but does not bind a training tenant to it —
+            tenancy in MTP is one HOPE organization per tenant, and that binding is a one-time
+            administrative action:
+          </p>
+          <ol>
+            <li>Sign in to the <strong>HOPE admin portal</strong> (<code>hope.domains.appUrl</code>) as its application owner and change the bootstrap password.</li>
+            <li>Create the <strong>HOPE organization</strong> your training tenant will use, and under it a <strong>machine credential</strong> (API key) — note its id and secret.</li>
+            <li>Sign in to the <strong>MTP portal</strong> (<code>domains.appUrl</code>) as its application owner. Open <strong>Platform → Tenants</strong>, create (or open) the tenant, and choose <strong>Connect to HOPE</strong>.</li>
+            <li>Enter the HOPE organization id, the HOPE API base URL (your public HOPE API URL, <code>hope.domains.jwtIssuer</code>), and the credential id and secret. MTP seals the secret under its KMS key and shows the connection as <em>connected</em>.</li>
+            <li>Run one training session end to end to confirm the data plane.</li>
+          </ol>
+        </section>
+
+        <section id="ingress">
+          <h2>8. DNS, ingress &amp; TLS</h2>
+          <p>Expose these ClusterIP Services through your ingress with TLS you control:</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Host (parameter)</th><th>Service</th><th>Port</th><th>Notes</th></tr></thead>
+              <tbody>
+                <tr><td><code>domains.appUrl</code></td><td><code>mtp-web</code></td><td>80</td><td></td></tr>
+                <tr><td><code>domains.apiUrl</code></td><td><code>mtp-api</code></td><td>80</td><td>Route <code>/ws</code> and <code>/ws/*</code> on this host to <code>mtp-session-gateway:80</code> with a long (≥ 10 min) backend timeout; WebSocket upgrades must pass.</td></tr>
+                <tr><td><code>hope.domains.appUrl</code></td><td><code>admin-web</code></td><td>80</td><td></td></tr>
+                <tr><td><code>hope.domains.jwtIssuer</code></td><td><code>api</code></td><td>80</td><td>Also carries HOPE's WebSocket routes.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="license-ops">
+          <h2>9. License lifecycle &amp; operations</h2>
+          <p>Both APIs re-verify the license daily. Within 30 days of expiry they log <code>LICENSE_EXPIRY_WARNING</code> once a day; on expiry they exit and stay down until renewed. To renew, update the <code>global.license.key</code> parameter (or edit both license Secrets) and let the API pods roll.</p>
+          <h3>Marketplace usage labels</h3>
+          <p>Every Pod carries the <code>goog-partner-solution</code> label Google uses to attribute consumption. Do not remove it: <code>mtp-api</code> checks its own label every 15 minutes and serves only <code>/health</code> while it is missing.</p>
+        </section>
+
+        <section id="troubleshooting">
+          <h2>10. Troubleshooting</h2>
+          <ul>
+            <li><strong>API pods in CrashLoopBackOff with <code>LICENSE_VALIDATION_FAILED</code></strong> — the license is missing, altered or expired; re-paste it exactly as issued.</li>
+            <li><strong><code>migrate</code> init container failing</strong> — the database URL is wrong or the database is not reachable from the cluster; the two products must have different databases.</li>
+            <li><strong>Qdrant Pending</strong> — the PersistentVolumeClaim did not bind; check <code>qdrant.storageClass</code> exists and can provision a 20 GiB ReadWriteOnce volume.</li>
+            <li><strong>503 on every MTP route except <code>/health</code></strong> — the <code>goog-partner-solution</code> label was removed from the <code>mtp-api</code> Pod; restore it.</li>
+            <li><strong>Sessions never start</strong> — the tenant is not bound to HOPE (section 7) or <code>/ws</code> is not routed to the session gateway (section 8).</li>
+          </ul>
+        </section>
+
+        <section id="upgrade">
+          <h2>11. Upgrading from 0.1.x, uninstalling</h2>
+          <p>0.2 is a new application generation with different images, parameters and resource names. Uninstall a 0.1.x release before installing 0.2 into the same namespace. Uninstalling 0.2 removes every resource except the Qdrant volume claim <code>qdrant-storage</code>, which is kept so an index survives a reinstall; delete it explicitly when you no longer need it.</p>
+        </section>
+
+        <section id="support">
+          <h2>12. Support</h2>
+          <p>Contact your CornerstoneX account team. Include the output of <code>kubectl -n &lt;namespace&gt; get application -o yaml</code> and the failing pod's logs.</p>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>

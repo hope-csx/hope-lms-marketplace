@@ -1,0 +1,153 @@
+{{/*
+The avatar bridge holds the media-room connection for a live Premium Avatar and
+feeds synthesized speech into it (ADR 0121). It exists as its own deployment
+because the LiveKit Node client needs glibc, which the API image does not have,
+and because a room connection is stateful in a way the horizontally-scaled API
+is not.
+
+Rendered only when liveAvatars.enabled is true. Nothing else in the chart depends
+on it: with it absent, Premium Avatars still speak and the portal reports that
+live rendering is unavailable.
+*/}}
+{{- if .Values.liveAvatars.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: avatar-bridge
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: avatar-bridge
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
+{{/* No Workload Identity annotation: the bridge reaches no GCP API. */}}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: avatar-bridge-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
+data:
+  PORT: '9010'
+  NODE_ENV: 'production'
+  # Covers provider start-up for a renderer the API launched moments earlier,
+  # not user think time.
+  RENDERER_JOIN_TIMEOUT_MS: '20000'
+  # How long a room stays warm after the last utterance, so a conversational
+  # turn does not pay reconnection latency.
+  ROOM_IDLE_TIMEOUT_MS: '120000'
+  LOG_LEVEL: 'info'
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: avatar-bridge
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: avatar-bridge
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: avatar-bridge
+  ports:
+    - name: ws
+      port: 9010
+      targetPort: ws
+      protocol: TCP
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: avatar-bridge
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: avatar-bridge
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.liveAvatars.replicas }}
+  progressDeadlineSeconds: 600
+  # A room connection cannot be handed to another pod, so an old replica must go
+  # before a new one arrives rather than both serving turns for the same room.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: avatar-bridge
+  template:
+    metadata:
+      labels:
+        app: avatar-bridge
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        {{- include "hope-metahuman-service.podLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: avatar-bridge
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      containers:
+        - name: avatar-bridge
+          image: {{ .Values.liveAvatars.image | quote }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: ws
+              containerPort: 9010
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: avatar-bridge-config
+            - secretRef:
+                name: avatar-bridge-secret
+          resources:
+            requests:
+              cpu: '100m'
+              memory: '256Mi'
+              ephemeral-storage: '256Mi'
+            limits:
+              cpu: '1000m'
+              memory: '1Gi'
+              ephemeral-storage: '256Mi'
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: ws
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: ws
+            periodSeconds: 30
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+---
+# Default-deny ingress; only the API pods may reach the bridge (FedRAMP AC-3,
+# AC-4, SC-7). Browsers talk to the media server directly and never to this.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: avatar-bridge-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: avatar-bridge
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: api
+      ports:
+        - protocol: TCP
+          port: 9010
+{{- end }}

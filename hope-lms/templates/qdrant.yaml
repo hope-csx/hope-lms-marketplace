@@ -1,0 +1,192 @@
+{{/*
+In-cluster Qdrant vector store, derived from the hosted platform's manifests
+(hope-metahuman-service/infra/k8s/base/qdrant). One vector store per cluster:
+the curriculum engine indexes learner documents into per-tenant, `mtp-`-prefixed
+collections (MTP architecture §8). Single replica on a ReadWriteOnce claim —
+scaling Qdrant means sharding with a replication factor, which is a capacity
+decision, not a replica count.
+
+The PersistentVolumeClaim is deliberately a standalone object rather than a
+volumeClaimTemplate, and the Marketplace deployer does not make it Application-
+owned, so the index SURVIVES an uninstall. Deleting it is a documented manual
+step in the deploy guide.
+*/}}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: qdrant
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: qdrant
+    {{- include "hope-lms.labels" . | nindent 4 }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: qdrant-secret
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hope-lms.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  # Server half of the one shared credential; the curriculum engine presents
+  # the same value as QDRANT_API_KEY (templates/app-secrets.yaml).
+  QDRANT__SERVICE__API_KEY: {{ .Values.qdrant.apiKey | quote }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: qdrant-storage
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: qdrant
+    {{- include "hope-lms.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.qdrant.storageSize | quote }}
+  {{- if .Values.qdrant.storageClass }}
+  storageClassName: {{ .Values.qdrant.storageClass | quote }}
+  {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: qdrant
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: qdrant
+    {{- include "hope-lms.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: qdrant
+  ports:
+    - name: http
+      port: 6333
+      targetPort: 6333
+      protocol: TCP
+    - name: grpc
+      port: 6334
+      targetPort: 6334
+      protocol: TCP
+  # ClusterIP only, never anything else: Qdrant holds every tenant's indexed
+  # document text and must have no public address (SC-7, AC-3).
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: qdrant
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: qdrant
+    {{- include "hope-lms.labels" . | nindent 4 }}
+spec:
+  # Pinned at 1 by the storage design: the ReadWriteOnce claim attaches to a
+  # single node, so a second replica would sit Pending forever.
+  replicas: 1
+  serviceName: qdrant
+  selector:
+    matchLabels:
+      app: qdrant
+  # Two Qdrant processes must never hold the same storage directory, and a
+  # rolling update on a single-replica StatefulSet with a shared RWO claim
+  # would try exactly that.
+  updateStrategy:
+    type: OnDelete
+  template:
+    metadata:
+      labels:
+        app: qdrant
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        {{- include "hope-lms.consumptionTrackingLabel" . | nindent 8 }}
+    spec:
+      serviceAccountName: qdrant
+      securityContext:
+        runAsNonRoot: true
+        # The upstream image sets no USER; an explicit non-root uid/gid plus an
+        # fsGroup is what hands the PersistentVolume to that gid so the data
+        # directory is writable under readOnlyRootFilesystem.
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      # Room to flush segments and close cleanly rather than replay the WAL.
+      terminationGracePeriodSeconds: 120
+      volumes:
+        - name: storage
+          persistentVolumeClaim:
+            claimName: qdrant-storage
+      containers:
+        - name: qdrant
+          image: {{ .Values.qdrant.image | quote }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 6333
+              protocol: TCP
+            - name: grpc
+              containerPort: 6334
+              protocol: TCP
+          env:
+            # Qdrant reports anonymised usage telemetry to an external endpoint
+            # by default; in a no-egress tenant that is an unauthorised egress
+            # attempt, not a privacy question (SC-7, CM-7).
+            - name: QDRANT__TELEMETRY_DISABLED
+              value: 'true'
+            # All three paths inside the mounted volume; the defaults sit on the
+            # read-only root filesystem.
+            - name: QDRANT__STORAGE__STORAGE_PATH
+              value: /qdrant/storage/collections
+            - name: QDRANT__STORAGE__SNAPSHOTS_PATH
+              value: /qdrant/storage/snapshots
+            - name: QDRANT__STORAGE__TEMP_PATH
+              value: /qdrant/storage/tmp
+            - name: QDRANT__LOG_LEVEL
+              value: INFO
+          envFrom:
+            - secretRef:
+                name: qdrant-secret
+          volumeMounts:
+            - name: storage
+              mountPath: /qdrant/storage
+          resources:
+            requests:
+              cpu: '1000m'
+              memory: '2Gi'
+              ephemeral-storage: '256Mi'
+            limits:
+              cpu: '1000m'
+              memory: '3Gi'
+              ephemeral-storage: '1Gi'
+          # /livez, /readyz and /healthz are exempt from API-key authentication
+          # (verified against v1.19.0); every other path requires the key.
+          # Startup is generous because a restart after an unclean shutdown
+          # replays the write-ahead log first.
+          startupProbe:
+            httpGet:
+              path: /readyz
+              port: 6333
+            failureThreshold: 60
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 6333
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: 6333
+            periodSeconds: 30
+            failureThreshold: 6
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL

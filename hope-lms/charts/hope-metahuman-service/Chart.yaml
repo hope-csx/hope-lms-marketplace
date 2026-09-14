@@ -1,0 +1,23 @@
+apiVersion: v2
+name: hope-metahuman-service
+description: >-
+  HOPE Metahuman Service — real-time avatar animation (NVIDIA Audio2Face-3D),
+  STT/TTS, and agent orchestration for government and regulated-sector
+  customers. This chart is packaged for Google Cloud Marketplace and installs
+  the admin-web, api, agent-engine and a2f3d-engine tiers. The NVIDIA
+  Audio2Face-3D NIM is a customer-supplied prerequisite and is not shipped by
+  this chart.
+type: application
+# `version` is the chart version and `appVersion` is the released product
+# version. Both are kept in lockstep with the Marketplace `publishedVersion`
+# in ../schema.yaml and the deployer image tag by
+# scripts/sync-marketplace-version.mjs. Do not edit by hand for a release —
+# run the sync script so all three stay identical (Marketplace rejects a
+# deployer whose tag != publishedVersion).
+version: 0.1.0
+appVersion: '0.1.0'
+
+home: https://www.cornerstonex.ai
+maintainers:
+  - name: Lead Engineer
+    email: engineer@cornerstonex.ai

@@ -1,10 +1,13 @@
 apiVersion: v2
 name: hope-lms
 description: >-
-  HOPE LMS — a learning management system for government and regulated-sector
-  customers. This chart is packaged for Google Cloud Marketplace and installs the
-  web, api, agent-engine and a2f3d-engine tiers. The NVIDIA Audio2Face-3D NIM is a
-  customer-supplied prerequisite and is not shipped by this chart.
+  HOPE MTP — the Metahuman Training Platform bundled with the HOPE Metahuman
+  Service it runs on, packaged for Google Cloud Marketplace as one Kubernetes
+  application. Installs the MTP tiers (web, api, session-gateway,
+  assessment-engine, curriculum-engine), an in-cluster Qdrant vector store, and
+  the HOPE Metahuman Service chart as a subchart (api, admin-web, agent-engine,
+  a2f3d-engine, optional avatar-bridge). Cloud SQL, Memorystore, Cloud KMS and
+  the NVIDIA Audio2Face-3D NIM are customer-supplied prerequisites.
 type: application
 # `version` is the chart version and `appVersion` is the released product
 # version. Both are kept in lockstep with the Marketplace `publishedVersion`
@@ -12,8 +15,21 @@ type: application
 # scripts/sync-marketplace-version.mjs. Do not edit by hand for a release —
 # run the sync script so all three stay identical (Marketplace rejects a
 # deployer whose tag != publishedVersion).
-version: 0.1.0
-appVersion: '0.1.0'
+version: 0.2.0
+appVersion: '0.2.0'
+
+# The HOPE Metahuman Service chart, vendored into charts/ from the HOPE
+# repository at the commit recorded in ../HOPE_REF by scripts/vendor-hope-chart.sh
+# (never fetched from a registry — the copy is committed so the public mirror
+# and CI render without HOPE access). The dependency version is rewritten by
+# that script to match the vendored Chart.yaml; helm refuses to render when
+# they disagree. Its values live under `hope.*` (the alias).
+dependencies:
+  - name: hope-metahuman-service
+    alias: hope
+    version: 0.1.0
+    repository: ''
+    condition: hope.enabled
 
 home: https://www.cornerstonex.ai
 maintainers:

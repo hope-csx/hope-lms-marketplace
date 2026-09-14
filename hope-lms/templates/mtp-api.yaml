@@ -1,0 +1,272 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mtp-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: mtp-api
+    {{- include "hope-lms.labels" . | nindent 4 }}
+  {{- include "hope-lms.gsaAnnotation" .Values.serviceAccounts.apiGsa | nindent 2 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mtp-api-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hope-lms.labels" . | nindent 4 }}
+data:
+  PORT: '4001'
+  NODE_ENV: 'production'
+  GCP_PROJECT_ID: {{ .Values.global.gcp.projectId | quote }}
+  DEPLOY_ENV: {{ .Values.global.gcp.deployEnv | quote }}
+  # Every secret arrives from mtp-api-secret; never consult Secret Manager
+  # (the customer's GSA has no grant there) — ADR 0033.
+  SECRETS_SOURCE: 'env'
+  JWT_KMS_KEY_VERSION: {{ .Values.kms.jwtKmsKeyVersion | quote }}
+  AUTH_DATA_KMS_KEY: {{ .Values.kms.authDataKmsKey | quote }}
+  {{- if .Values.kms.curriculumDataKmsKey }}
+  CURRICULUM_DATA_KMS_KEY: {{ .Values.kms.curriculumDataKmsKey | quote }}
+  {{- end }}
+  JWT_ISSUER: {{ .Values.domains.apiUrl | quote }}
+  JWT_AUDIENCE: {{ .Values.domains.appUrl | quote }}
+  APP_URL: {{ .Values.domains.appUrl | quote }}
+  API_ORIGIN: {{ .Values.domains.apiUrl | quote }}
+  COOKIE_DOMAIN: {{ .Values.domains.cookieDomain | quote }}
+  {{- if .Values.domains.oidcPostLoginRedirect }}
+  OIDC_POST_LOGIN_REDIRECT: {{ .Values.domains.oidcPostLoginRedirect | quote }}
+  {{- end }}
+  SESSION_IDLE_MINUTES: '15'
+  SESSION_ABSOLUTE_HOURS: '12'
+  ACCESS_TOKEN_MINUTES: '10'
+  # Internal cluster URLs of the two engines. ClusterIP-only — the api is the
+  # engines' sole caller and the NetworkPolicies enforce it (SC-7).
+  ASSESSMENT_ENGINE_URL: 'http://mtp-assessment-engine.{{ .Release.Namespace }}.{{ include "hope-lms.svcDomain" . }}:80'
+  CURRICULUM_ENGINE_URL: 'http://mtp-curriculum-engine.{{ .Release.Namespace }}.{{ include "hope-lms.svcDomain" . }}:80'
+  ASSESSMENT_WORKER_ENABLED: 'true'
+  CURRICULUM_WORKER_ENABLED: 'true'
+  {{- if .Values.storage.documentsBucket }}
+  DOCUMENTS_BUCKET: {{ .Values.storage.documentsBucket | quote }}
+  {{- end }}
+  {{- if .Values.mail.smtpHost }}
+  SMTP_HOST: {{ .Values.mail.smtpHost | quote }}
+  SMTP_PORT: {{ .Values.mail.smtpPort | quote }}
+  {{- if .Values.mail.smtpUser }}
+  SMTP_USER: {{ .Values.mail.smtpUser | quote }}
+  {{- end }}
+  {{- if .Values.mail.from }}
+  MAIL_FROM: {{ .Values.mail.from | quote }}
+  {{- end }}
+  {{- end }}
+  SEED_ON_BOOT: {{ .Values.seedOnBoot | quote }}
+  BOOTSTRAP_APP_OWNER_EMAIL: {{ .Values.bootstrapOwner.email | quote }}
+  BOOTSTRAP_APP_OWNER_FIRST_NAME: {{ .Values.bootstrapOwner.firstName | quote }}
+  BOOTSTRAP_APP_OWNER_LAST_NAME: {{ .Values.bootstrapOwner.lastName | quote }}
+  # Enforce the offline license gate. Only ever 'true' for Marketplace installs.
+  HOPE_LICENSE_ENFORCED: 'true'
+  # Marketplace partner consumption tracking. The api re-reads its own Pod labels
+  # from the downward API volume mounted below and limits functionality while the
+  # tracking label is absent, which is the producer safeguard Google asks for.
+  MARKETPLACE_CONSUMPTION_TRACKING_ENFORCED: {{ .Values.consumptionTracking.enforced | quote }}
+  MARKETPLACE_CONSUMPTION_TRACKING_URN: {{ include "hope-lms.solutionUrn" . | quote }}
+  MARKETPLACE_POD_LABELS_PATH: '/etc/podinfo/labels'
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mtp-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: mtp-api
+    {{- include "hope-lms.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: mtp-api
+  ports:
+    - name: http
+      port: 80
+      targetPort: 4001
+      protocol: TCP
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mtp-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: mtp-api
+    {{- include "hope-lms.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.mtp.api.replicas }}
+  # Covers a cold node pulling this release's images plus the migration init
+  # container before the api container is allowed to start.
+  progressDeadlineSeconds: 900
+  selector:
+    matchLabels:
+      app: mtp-api
+  template:
+    metadata:
+      labels:
+        # `mtp-api`, never `api`: the HOPE subchart's NetworkPolicies admit
+        # pods labelled `app: api` to its engines, and MTP must not inherit
+        # that grant by sharing a label value.
+        app: mtp-api
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        {{- include "hope-lms.consumptionTrackingLabel" . | nindent 8 }}
+    spec:
+      serviceAccountName: mtp-api
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        # Node.js and Prisma's native engine write to /tmp; readOnlyRootFilesystem
+        # blocks that without an emptyDir mount (CM-7).
+        - name: tmp
+          emptyDir: {}
+        # Projects this Pod's own labels onto the filesystem so the api can verify
+        # its consumption tracking label with no Kubernetes API access, and so the
+        # deployer still needs no RBAC beyond the namespaced default. kubelet
+        # rewrites the file when labels change, so removing the label from a
+        # running Pod is detected on the next check rather than only on restart.
+        - name: podinfo
+          downwardAPI:
+            items:
+              - path: labels
+                fieldRef:
+                  fieldPath: metadata.labels
+      # Applies pending Prisma migrations before any api container starts, so
+      # the app never serves against a schema it was not built for (CM-3).
+      # `prisma migrate deploy` only applies what is committed under
+      # prisma/migrations and refuses to rewrite history; with nothing pending
+      # it exits 0. DATABASE_URL comes from mtp-api-secret (the script honours
+      # an explicit value and skips Secret Manager).
+      initContainers:
+        - name: migrate
+          image: {{ .Values.mtp.api.image | quote }}
+          imagePullPolicy: IfNotPresent
+          workingDir: /app/apps/api
+          command:
+            - node
+            - prisma/migrate.mjs
+          envFrom:
+            - configMapRef:
+                name: mtp-api-config
+            - secretRef:
+                name: mtp-api-secret
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: '100m'
+              memory: '256Mi'
+              ephemeral-storage: '256Mi'
+            limits:
+              cpu: '500m'
+              memory: '512Mi'
+              ephemeral-storage: '1Gi'
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      containers:
+        - name: api
+          image: {{ .Values.mtp.api.image | quote }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 4001
+              protocol: TCP
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: podinfo
+              mountPath: /etc/podinfo
+              readOnly: true
+          envFrom:
+            - configMapRef:
+                name: mtp-api-config
+            - secretRef:
+                name: mtp-api-secret
+            - secretRef:
+                name: hope-lms-license
+          # Marketplace meters the labelled Pod against its declared resources, and
+          # Google's reference Pod spec declares ephemeral-storage alongside cpu and
+          # memory — omitting it leaves consumption tracking incomplete.
+          resources:
+            requests:
+              cpu: '100m'
+              memory: '256Mi'
+              ephemeral-storage: '512Mi'
+            limits:
+              cpu: '500m'
+              memory: '512Mi'
+              ephemeral-storage: '2Gi'
+          # /health/ready round-trips to the database (SELECT 1) and answers 503
+          # until it succeeds, so a pod that cannot reach Postgres leaves the
+          # Service endpoints instead of serving errors.
+          startupProbe:
+            httpGet:
+              path: /health/ready
+              port: 4001
+            failureThreshold: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 4001
+            periodSeconds: 10
+            failureThreshold: 3
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health/ready
+              port: 4001
+            periodSeconds: 30
+            failureThreshold: 10
+            timeoutSeconds: 5
+          lifecycle:
+            preStop:
+              exec:
+                command: ['/bin/sh', '-c', 'sleep 30']
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      terminationGracePeriodSeconds: 60
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: mtp-api
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hope-lms.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: mtp-api
+  minReplicas: {{ .Values.mtp.api.replicas }}
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80

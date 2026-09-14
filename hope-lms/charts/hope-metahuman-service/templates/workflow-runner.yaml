@@ -1,0 +1,278 @@
+{{/*
+The workflow sandbox: where tenant-authored Python for `code` nodes runs.
+
+Rendered only when `workflowSandbox.mode` is `k8s`. Two reasons a customer
+would turn it off, and both are real: an operator whose policy forbids the
+platform creating pods outside its own namespace, and a cluster with no gVisor
+RuntimeClass installed. With it off, declarative workflows — `tool`, `llm`, and
+`output` nodes — still run normally; a `code` node fails with
+`SANDBOX_UNAVAILABLE` rather than executing somewhere less isolated. That
+degradation is the point. There is no fallback that runs tenant code in the
+engine process, because the engine process holds the Vertex credentials.
+
+This mirrors `infra/k8s/sandbox/`, which is what the hosted service deploys. The
+two are separate files rather than one because Marketplace installs into a
+single release namespace and provisions its own trust material, while the hosted
+deployment has Terraform and a CI secret sync. Keeping them apart means neither
+has to carry conditionals for the other's environment.
+
+FedRAMP control mappings: SC-39, SC-7, SC-5, SC-4, AC-6, CM-7.
+*/}}
+{{- if eq .Values.workflowSandbox.mode "k8s" }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ .Values.workflowSandbox.namespace | quote }}
+  labels:
+    name: {{ .Values.workflowSandbox.namespace | quote }}
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
+    # Restricted Pod Security, enforced rather than audited. The workload this
+    # namespace holds is the one that most needs it, and an admission failure
+    # here is a pod that does not start rather than a control that quietly
+    # stopped applying.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: workflow-runner
+  namespace: {{ .Values.workflowSandbox.namespace | quote }}
+  labels:
+    app: workflow-runner
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
+# No `iam.gke.io/gcp-service-account` annotation, deliberately. This is the one
+# workload in the chart bound to no Google identity: there is no principal to
+# exchange a token for, so there is nothing for tenant code to steal.
+automountServiceAccountToken: false
+---
+# The pool manager lives in the agent engine and needs to list the pods it may
+# claim and delete the ones it has used. Scoped to this namespace only, and to
+# pods only — a Role rather than a ClusterRole so a compromised engine cannot
+# reach the platform namespace through it (AC-6).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: workflow-sandbox-pool-manager
+  namespace: {{ .Values.workflowSandbox.namespace | quote }}
+  labels:
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ['']
+    resources: ['pods']
+    verbs: ['get', 'list', 'watch', 'delete']
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: workflow-sandbox-pool-manager
+  namespace: {{ .Values.workflowSandbox.namespace | quote }}
+  labels:
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: workflow-sandbox-pool-manager
+subjects:
+  - kind: ServiceAccount
+    name: agent-engine
+    namespace: {{ .Release.Namespace }}
+---
+# Egress is an allowlist with no entries, DNS included. The sandbox never dials
+# out: the pool manager opens the connection and host calls travel back up that
+# same inbound stream, which is the whole reason egress can be closed rather
+# than merely narrowed (SC-7, AC-4).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: workflow-runner
+  namespace: {{ .Values.workflowSandbox.namespace | quote }}
+  labels:
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: workflow-runner
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .Release.Namespace | quote }}
+          podSelector:
+            matchLabels:
+              app: agent-engine
+      ports:
+        - protocol: TCP
+          port: 9110
+  egress: []
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: workflow-runner
+  namespace: {{ .Values.workflowSandbox.namespace | quote }}
+  labels:
+    app: workflow-runner
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
+spec:
+  # Headless. The pool manager dials individual pod IPs — it claims one pod, not
+  # "a pod" — so load balancing across the pool would defeat the point. The
+  # Service exists to give the certificate a name to be verified against.
+  clusterIP: None
+  selector:
+    app: workflow-runner
+  ports:
+    - name: sandbox
+      port: 9110
+      targetPort: 9110
+      protocol: TCP
+---
+{{- if .Values.workflowSandbox.tls.serverCertPem }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: workflow-runner-tls
+  namespace: {{ .Values.workflowSandbox.namespace | quote }}
+  labels:
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  # The server half. Tenant code can read this, and that is accounted for: a
+  # sandbox is an endpoint that receives work, so impersonating one buys an
+  # attacker nothing. The half that carries authority is the client key, which
+  # lives in the platform namespace and never here.
+  tls.crt: {{ .Values.workflowSandbox.tls.serverCertPem | quote }}
+  tls.key: {{ .Values.workflowSandbox.tls.serverKeyPem | quote }}
+  ca.crt: {{ .Values.workflowSandbox.tls.caCertPem | quote }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: agent-engine-sandbox-tls
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
+type: Opaque
+stringData:
+  # The client half, in the platform namespace only. Two secrets rather than one
+  # shared bundle so neither side holds the other's private key.
+  tls.crt: {{ .Values.workflowSandbox.tls.clientCertPem | quote }}
+  tls.key: {{ .Values.workflowSandbox.tls.clientKeyPem | quote }}
+  ca.crt: {{ .Values.workflowSandbox.tls.caCertPem | quote }}
+---
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: workflow-runner
+  namespace: {{ .Values.workflowSandbox.namespace | quote }}
+  labels:
+    app: workflow-runner
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
+spec:
+  # Warm-pool floor. Each pod serves exactly one execution and exits; the
+  # ReplicaSet restores the count. Too low and a run waits on a cold gVisor
+  # start, too high and idle pods hold cluster capacity. Measure before
+  # promising a latency number.
+  replicas: {{ .Values.workflowSandbox.replicas }}
+  selector:
+    matchLabels:
+      app: workflow-runner
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 2
+  template:
+    metadata:
+      labels:
+        app: workflow-runner
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        {{- include "hope-metahuman-service.podLabels" . | nindent 8 }}
+    spec:
+      runtimeClassName: {{ .Values.workflowSandbox.runtimeClassName | quote }}
+      serviceAccountName: workflow-runner
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      # Tenant code must not be able to resolve a service name even if the
+      # NetworkPolicy is ever loosened, and it has no business seeing the
+      # cluster's search domains.
+      dnsPolicy: None
+      dnsConfig:
+        nameservers:
+          - 127.0.0.1
+      terminationGracePeriodSeconds: 5
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        # The only writable path in the pod, memory-backed so it never reaches a
+        # node disk. The runner purges it at startup, because a Deployment
+        # restarts the container in place and the volume outlives the process.
+        - name: scratch
+          emptyDir:
+            medium: Memory
+            sizeLimit: 512Mi
+        - name: tls
+          secret:
+            secretName: workflow-runner-tls
+            optional: true
+            defaultMode: 0400
+      containers:
+        - name: workflow-runner
+          image: {{ .Values.workflowSandbox.image | quote }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9110
+              protocol: TCP
+          env:
+            - name: WORKFLOW_RUNNER_PORT
+              value: '9110'
+            - name: WORKFLOW_RUNNER_SCRATCH_DIR
+              value: /scratch
+            - name: WORKFLOW_RUNNER_TLS_CERT_FILE
+              value: /tls/tls.crt
+            - name: WORKFLOW_RUNNER_TLS_KEY_FILE
+              value: /tls/tls.key
+            - name: WORKFLOW_RUNNER_TLS_CLIENT_CA_FILE
+              value: /tls/ca.crt
+          volumeMounts:
+            - name: scratch
+              mountPath: /scratch
+            - name: tls
+              mountPath: /tls
+              readOnly: true
+          resources:
+            # Guaranteed QoS: requests equal limits. The pool is a shared
+            # resource, and a burstable sandbox would let one tenant's code
+            # degrade a co-scheduled tenant's run without exceeding any limit.
+            requests:
+              cpu: '500m'
+              memory: '1Gi'
+              ephemeral-storage: '256Mi'
+            limits:
+              cpu: '500m'
+              memory: '1Gi'
+              ephemeral-storage: '256Mi'
+          # No probes. This pod speaks a length-prefixed frame protocol over
+          # mTLS, and adding an HTTP listener to satisfy a probe would put an
+          # unauthenticated port on the one workload that must not have one.
+          # Liveness is the pool manager's business: a pod that does not answer
+          # is one it does not claim.
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
+{{- end }}

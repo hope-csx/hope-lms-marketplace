@@ -2,8 +2,8 @@
 # Generate throwaway RS256 service keypairs and substitute them into the test
 # deployment's schema overlay. Runs once, inside the deployer image build.
 #
-# Why this exists: the four service-keypair properties are required, and they
-# cannot be left empty. The API's secret loader treats an empty environment
+# Why this exists: the four HOPE service-keypair properties (hope.secrets.*)
+# are required, and they cannot be left empty. HOPE's secret loader treats an empty environment
 # variable as "not supplied" and falls back to GCP Secret Manager, which is
 # unreachable from Marketplace's verification cluster and fatal at boot.
 # Committing PEM blocks instead would put private keys in git and trip secret
@@ -27,8 +27,10 @@ fi
 tmp="$(mktemp -d)"
 trap 'rm -rf "${tmp}"' EXIT
 
-# Keypair 1: the API signs internal service tokens, the engines verify them.
-# Keypair 2: the agent engine signs callbacks to the API, the API verifies them.
+# Keypair 1: the HOPE api signs internal service tokens, its engines verify them.
+# Keypair 2: the HOPE agent engine signs callbacks to the api, the api verifies them.
+# MTP's own secrets (peppers, service tokens) are GENERATED_PASSWORD properties
+# and need no injection.
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "${tmp}/svc.key" 2>/dev/null
 openssl rsa -in "${tmp}/svc.key" -pubout -out "${tmp}/svc.pub" 2>/dev/null
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "${tmp}/cb.key" 2>/dev/null

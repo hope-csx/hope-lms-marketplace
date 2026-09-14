@@ -1,0 +1,80 @@
+{{/*
+Ingress restrictions for the MTP engines and the vector store (AC-3, AC-4,
+SC-7). Both engines are reachable from mtp-api alone; Qdrant from the
+curriculum engine alone — the tenant-scoping of collections lives in the
+engine, and a caller holding the key and talking to 6333 directly would bypass
+it. No namespace-wide default-deny is shipped: the customer's ingress
+controller must still reach mtp-web, mtp-api and mtp-session-gateway, and the
+HOPE subchart carries its own policies for its engines.
+*/}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mtp-assessment-engine-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hope-lms.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: mtp-assessment-engine
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: mtp-api
+      ports:
+        - protocol: TCP
+          port: 4020
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mtp-curriculum-engine-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hope-lms.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: mtp-curriculum-engine
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: mtp-api
+      ports:
+        - protocol: TCP
+          port: 4030
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: qdrant-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hope-lms.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: qdrant
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: mtp-curriculum-engine
+        # The smoke-test Pod probes /readyz during Marketplace verification.
+        - podSelector:
+            matchLabels:
+              app: smoke-test
+      ports:
+        - protocol: TCP
+          port: 6333
+        - protocol: TCP
+          port: 6334

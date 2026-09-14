@@ -1,0 +1,165 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mtp-session-gateway
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: mtp-session-gateway
+    {{- include "hope-lms.labels" . | nindent 4 }}
+  {{- include "hope-lms.gsaAnnotation" .Values.serviceAccounts.sessionGatewayGsa | nindent 2 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mtp-session-gateway-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hope-lms.labels" . | nindent 4 }}
+data:
+  PORT: '4010'
+  NODE_ENV: 'production'
+  LOG_LEVEL: 'info'
+  GCP_PROJECT_ID: {{ .Values.global.gcp.projectId | quote }}
+  DEPLOY_ENV: {{ .Values.global.gcp.deployEnv | quote }}
+  # GATEWAY_SERVICE_TOKEN arrives from mtp-session-gateway-secret (ADR 0033).
+  SECRETS_SOURCE: 'env'
+  # Control-plane api. Every session load, transcript write and flow action
+  # goes through it — the gateway is never a second DB owner (§6.1).
+  API_BASE_URL: 'http://mtp-api.{{ .Release.Namespace }}.{{ include "hope-lms.svcDomain" . }}:80'
+  # NO HOPE BASE URL and NO KEYS, deliberately: tenancy is one HOPE org per MTP
+  # tenant, so the base URL and credential arrive per session from mtp-api.
+  ACCESS_COOKIE_NAME: 'mtp_access'
+  API_TIMEOUT_MS: '5000'
+  WS_HEARTBEAT_SECONDS: '30'
+  WS_IDLE_TIMEOUT_SECONDS: '300'
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mtp-session-gateway
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: mtp-session-gateway
+    {{- include "hope-lms.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: mtp-session-gateway
+  ports:
+    - name: http
+      port: 80
+      targetPort: 4010
+      protocol: TCP
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mtp-session-gateway
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: mtp-session-gateway
+    {{- include "hope-lms.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.mtp.sessionGateway.replicas }}
+  progressDeadlineSeconds: 900
+  selector:
+    matchLabels:
+      app: mtp-session-gateway
+  template:
+    metadata:
+      labels:
+        app: mtp-session-gateway
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        {{- include "hope-lms.consumptionTrackingLabel" . | nindent 8 }}
+    spec:
+      serviceAccountName: mtp-session-gateway
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      containers:
+        - name: session-gateway
+          image: {{ .Values.mtp.sessionGateway.image | quote }}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 4010
+              protocol: TCP
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          envFrom:
+            - configMapRef:
+                name: mtp-session-gateway-config
+            - secretRef:
+                name: mtp-session-gateway-secret
+          resources:
+            requests:
+              cpu: '100m'
+              memory: '256Mi'
+              ephemeral-storage: '256Mi'
+            limits:
+              cpu: '500m'
+              memory: '512Mi'
+              ephemeral-storage: '1Gi'
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 4010
+            failureThreshold: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 4010
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 4010
+            periodSeconds: 30
+            failureThreshold: 3
+          lifecycle:
+            preStop:
+              exec:
+                command: ['/bin/sh', '-c', 'sleep 30']
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      terminationGracePeriodSeconds: 60
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: mtp-session-gateway
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hope-lms.labels" . | nindent 4 }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: mtp-session-gateway
+  minReplicas: {{ .Values.mtp.sessionGateway.replicas }}
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80

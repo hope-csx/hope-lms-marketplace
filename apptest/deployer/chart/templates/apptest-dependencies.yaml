@@ -5,10 +5,12 @@ This file exists solely in the test chart overlay, so it is never rendered for
 a customer install — those connect to Cloud SQL and Memorystore, which the
 customer provisions and passes in as connection URLs.
 
-The API cannot reach a ready state without a real database: its init container
-runs the Prisma migrations and the pod does not start if they fail. Both servers
-keep their data in an emptyDir, because the namespace is deleted when
-verification finishes.
+Neither API can reach a ready state without a real database: each runs its
+migrations in an init container and the pod does not start if they fail. One
+Postgres server hosts both products' databases — MTP's as the server default
+and HOPE's created by an init script — because two migrators sharing ONE
+database is the race HOPE's ADR 0032 documents. Both servers keep their data in
+an emptyDir, because the namespace is deleted when verification finishes.
 
 Images come from Docker Hub rather than our own registry on purpose. Our
 Marketplace repository is private, so the verification cluster has no
@@ -16,6 +18,19 @@ credentials for it, and publishing test-only dependencies under the product
 root would submit them to Marketplace's vulnerability scan as if they were part
 of the product.
 */}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: apptest-postgres-init
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hope-lms.labels" . | nindent 4 }}
+data:
+  01-extra-databases.sql: |
+    {{- range .Values.apptest.postgres.extraDatabases }}
+    CREATE DATABASE {{ . }};
+    {{- end }}
+---
 apiVersion: v1
 kind: Service
 metadata:
@@ -56,6 +71,9 @@ spec:
       volumes:
         - name: data
           emptyDir: {}
+        - name: init
+          configMap:
+            name: apptest-postgres-init
       containers:
         - name: postgres
           image: {{ .Values.apptest.postgres.image | quote }}
@@ -77,6 +95,10 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /var/lib/postgresql/data
+            # The image runs every *.sql here once, on first initialisation.
+            - name: init
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
           resources:
             requests:
               cpu: '100m'

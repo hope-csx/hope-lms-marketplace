@@ -1,130 +1,144 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: web
+  name: mtp-web
   namespace: {{ .Release.Namespace }}
   labels:
-    app: web
+    app: mtp-web
     {{- include "hope-lms.labels" . | nindent 4 }}
-  {{- if .Values.serviceAccounts.webGsa }}
-  annotations:
-    iam.gke.io/gcp-service-account: {{ .Values.serviceAccounts.webGsa | quote }}
-  {{- end }}
+  {{- include "hope-lms.gsaAnnotation" .Values.serviceAccounts.webGsa | nindent 2 }}
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: web-config
+  name: mtp-web-config
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "hope-lms.labels" . | nindent 4 }}
 data:
+  PORT: '4000'
   NODE_ENV: 'production'
-  # Browser-facing API URL. Deliberately NOT NEXT_PUBLIC_API_URL: the web
-  # image is published once and reused by every Marketplace customer
-  # install, so this value cannot be baked in at build time — it is read by
-  # the root layout at request time and embedded into a per-page runtime
-  # config script tag. See apps/web/lib/runtime-config.ts and
-  # docs/adr/0026-runtime-public-api-url.md.
-  API_PUBLIC_URL: {{ .Values.domains.jwtIssuer | quote }}
+  DEPLOY_ENV: {{ .Values.global.gcp.deployEnv | quote }}
+  # Browser-facing API URL. Deliberately NOT NEXT_PUBLIC_API_URL: the web image
+  # is published once and reused by every Marketplace customer install, so this
+  # value cannot be baked in at build time — it is injected into the page shell
+  # at request time (HOPE ADR 0026 pattern).
+  API_PUBLIC_URL: {{ .Values.domains.apiUrl | quote }}
+  # Browser-side WebSocket endpoint for live sessions; the customer's ingress
+  # routes /ws on the api host to mtp-session-gateway.
+  GATEWAY_PUBLIC_WS_URL: {{ include "hope-lms.gatewayWsUrl" . | quote }}
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: web
+  name: mtp-web
   namespace: {{ .Release.Namespace }}
   labels:
-    app: web
+    app: mtp-web
     {{- include "hope-lms.labels" . | nindent 4 }}
 spec:
   selector:
-    app: web
+    app: mtp-web
   ports:
     - name: http
       port: 80
-      targetPort: 3000
+      targetPort: 4000
       protocol: TCP
   type: ClusterIP
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: web
+  name: mtp-web
   namespace: {{ .Release.Namespace }}
   labels:
-    app: web
+    app: mtp-web
     {{- include "hope-lms.labels" . | nindent 4 }}
 spec:
-  replicas: {{ .Values.web.replicas }}
+  replicas: {{ .Values.mtp.web.replicas }}
   progressDeadlineSeconds: 900
   selector:
     matchLabels:
-      app: web
+      app: mtp-web
   template:
     metadata:
       labels:
-        app: web
+        app: mtp-web
         app.kubernetes.io/instance: {{ .Release.Name }}
+        {{- include "hope-lms.consumptionTrackingLabel" . | nindent 8 }}
     spec:
-      serviceAccountName: web
+      serviceAccountName: mtp-web
       securityContext:
         runAsNonRoot: true
         runAsUser: 1001
         fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        # Next.js standalone server writes to /tmp at runtime.
+        - name: tmp
+          emptyDir: {}
       containers:
         - name: web
-          image: {{ .Values.web.image | quote }}
+          image: {{ .Values.mtp.web.image | quote }}
           imagePullPolicy: IfNotPresent
           ports:
-            - containerPort: 3000
+            - containerPort: 4000
               protocol: TCP
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
           envFrom:
             - configMapRef:
-                name: web-config
+                name: mtp-web-config
           resources:
             requests:
               cpu: '100m'
               memory: '256Mi'
+              ephemeral-storage: '512Mi'
             limits:
               cpu: '500m'
               memory: '512Mi'
-          # '/' redirects to the login page and kubelet follows the redirect,
-          # so each probe pays for a server-rendered page. The default
-          # timeoutSeconds of 1 is not enough for that render on the 100m CPU
-          # request above once a node is busy, which shows up as
-          # "context deadline exceeded" rather than a crash.
+              ephemeral-storage: '2Gi'
+          # '/' is a server-rendered page; the default 1 s probe timeout is not
+          # enough on the 100m CPU request once a node is busy.
           startupProbe:
             httpGet:
               path: /
-              port: 3000
+              port: 4000
             failureThreshold: 30
             periodSeconds: 10
             timeoutSeconds: 5
           readinessProbe:
             httpGet:
               path: /
-              port: 3000
+              port: 4000
             periodSeconds: 10
             failureThreshold: 3
             timeoutSeconds: 5
           livenessProbe:
             httpGet:
               path: /
-              port: 3000
+              port: 4000
             periodSeconds: 30
             failureThreshold: 3
             timeoutSeconds: 5
+          lifecycle:
+            preStop:
+              exec:
+                command: ['/bin/sh', '-c', 'sleep 30']
           securityContext:
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop:
                 - ALL
+      terminationGracePeriodSeconds: 60
 ---
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: web
+  name: mtp-web
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "hope-lms.labels" . | nindent 4 }}
@@ -132,8 +146,8 @@ spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
-    name: web
-  minReplicas: {{ .Values.web.replicas }}
+    name: mtp-web
+  minReplicas: {{ .Values.mtp.web.replicas }}
   maxReplicas: 10
   metrics:
     - type: Resource

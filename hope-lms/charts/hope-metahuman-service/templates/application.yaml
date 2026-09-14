@@ -1,0 +1,56 @@
+{{- /* Rendered only when this chart is the whole product; an umbrella chart owns the Application. */ -}}
+{{- if .Values.standalone }}
+{{- include "hope-metahuman-service.requireLicense" . -}}
+apiVersion: app.k8s.io/v1beta1
+kind: Application
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
+  annotations:
+    kubernetes-engine.cloud.google.com/icon: >-
+      data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==
+    marketplace.cloud.google.com/deploy-info: '{"partner_id": "cornerstonex", "product_id": "hope-mhs", "partner_name": "CornerstoneX"}'
+spec:
+  descriptor:
+    type: HOPE Metahuman Service
+    version: {{ .Chart.AppVersion | quote }}
+    description: >-
+      HOPE Metahuman Service avatar animation platform (admin-web, api,
+      agent-engine, a2f3d-engine). Requires a valid offline license and
+      customer-provisioned Cloud SQL, Memorystore (Redis) and Cloud KMS
+      resources.
+    maintainers:
+      - name: CornerstoneX
+        url: https://www.cornerstonex.ai
+    links:
+      - description: Deployment & configuration guide
+        url: https://www.cornerstonex.ai/hope-metahuman-service/docs/deploy-guide.html
+    notes: >-
+      After install, verify all pods are Ready and browse to your configured
+      appUrl. Monitor Cloud Logging for LICENSE_EXPIRY_WARNING entries — the API
+      logs an error daily once the license is within 30 days of expiry, and
+      refuses to boot once expired.
+  info:
+    - name: Web URL
+      value: {{ .Values.domains.appUrl | quote }}
+    - name: Deployer image
+      value: {{ .Values.deployerImage | quote }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  componentKinds:
+    - group: apps/v1
+      kind: Deployment
+    - group: v1
+      kind: Service
+    - group: v1
+      kind: ConfigMap
+    - group: v1
+      kind: Secret
+    - group: v1
+      kind: ServiceAccount
+    - group: autoscaling/v2
+      kind: HorizontalPodAutoscaler
+{{- end }}

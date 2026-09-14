@@ -10,13 +10,16 @@ It must be a Pod. run_tester.py skips every other kind and polls status.phase,
 so a Job would be reported as skipped and the check would pass without ever
 testing anything.
 
-It runs the MTP api image deliberately. Our Marketplace registry is private, so
-the verification cluster cannot pull from it, whereas Marketplace re-publishes
-every declared image — this one included — somewhere the cluster is entitled
-to. The image (node:22-alpine) already carries wget, so the checks need nothing
-else. The HOPE subchart's own smoke test is suppressed (standalone: false); its
-two checks are folded in here so one Pod covers the whole product.
+It runs the API image deliberately. Our Marketplace registry is private, so the
+verification cluster cannot pull from it, whereas Marketplace re-publishes every
+declared image — this one included — somewhere the cluster is entitled to. The
+image already carries wget, so the checks need nothing else.
+
+This Pod is the whole smoke test. A standalone tester image used to be published
+for the same purpose, but nothing ever referenced it, so it was removed (ADR
+0029).
 */}}
+{{- if .Values.standalone }}
 apiVersion: v1
 kind: Pod
 metadata:
@@ -24,8 +27,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     app: smoke-test
-    {{- include "hope-lms.labels" . | nindent 4 }}
-    {{- include "hope-lms.consumptionTrackingLabel" . | nindent 4 }}
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
   annotations:
     helm.sh/hook: test
 spec:
@@ -35,7 +37,7 @@ spec:
     runAsUser: 1001
   containers:
     - name: smoke-test
-      image: {{ .Values.mtp.api.image | quote }}
+      image: {{ .Values.api.image | quote }}
       imagePullPolicy: IfNotPresent
       command:
         - /bin/sh
@@ -63,32 +65,24 @@ spec:
             return 1
           }
 
-          NS="{{ .Release.Namespace }}.{{ include "hope-lms.svcDomain" . }}"
-
-          # Health routes are the APIs' only unauthenticated routes (the
-          # documented IA-2 exception); the web roots answer a redirect to the
-          # login page, which wget follows. Qdrant exempts /readyz from its
-          # API-key check.
-          check "mtp-api /health/ready"        "http://mtp-api.${NS}/health/ready"
-          check "mtp-web /"                    "http://mtp-web.${NS}/"
-          check "mtp-session-gateway /health"  "http://mtp-session-gateway.${NS}/health"
-          check "qdrant /readyz"               "http://qdrant.${NS}:6333/readyz"
-          check "hope api /health"             "http://api.${NS}/health"
-          check "hope admin-web /"             "http://admin-web.${NS}/"
+          # /health is the API's only unauthenticated route (the documented
+          # FedRAMP IA-2 exception). The admin-web root answers a redirect to
+          # the dashboard, which wget follows.
+          check "api /health" "http://api.{{ .Release.Namespace }}.{{ include "hope-metahuman-service.svcDomain" . }}/health"
+          check "admin-web /" "http://admin-web.{{ .Release.Namespace }}.{{ include "hope-metahuman-service.svcDomain" . }}/"
 
           echo "[smoke] all checks passed"
       resources:
         requests:
           cpu: '50m'
           memory: '64Mi'
-          ephemeral-storage: '64Mi'
         limits:
           cpu: '200m'
           memory: '128Mi'
-          ephemeral-storage: '256Mi'
       securityContext:
         allowPrivilegeEscalation: false
         readOnlyRootFilesystem: true
         capabilities:
           drop:
             - ALL
+{{- end }}

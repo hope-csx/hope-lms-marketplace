@@ -10,7 +10,7 @@
 # The token still ends up inside /data-test/schema.yaml in the finished image,
 # which is unavoidable: the deployer has to carry it to install in test mode.
 # That is why the verification license is issued short-lived rather than for a
-# normal license term — see docs/adr/0029-marketplace-automated-test-deployment.md.
+# normal license term — see docs/adr/0032-marketplace-combined-product.md.
 #
 # Usage: inject-test-license.sh <schema-path> [secret-path]
 #

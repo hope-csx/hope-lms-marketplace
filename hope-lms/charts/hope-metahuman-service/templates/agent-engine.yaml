@@ -5,7 +5,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     app: agent-engine
-    {{- include "hope-lms.labels" . | nindent 4 }}
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
   {{- if .Values.serviceAccounts.agentEngineGsa }}
   annotations:
     iam.gke.io/gcp-service-account: {{ .Values.serviceAccounts.agentEngineGsa | quote }}
@@ -17,16 +17,19 @@ metadata:
   name: agent-engine-config
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "hope-lms.labels" . | nindent 4 }}
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
 data:
   APP_ENV: 'production'
-  DEPLOY_ENV: {{ .Values.gcp.deployEnv | quote }}
-  GCP_PROJECT_ID: {{ .Values.gcp.projectId | quote }}
+  DEPLOY_ENV: {{ include "hope-metahuman-service.deployEnv" . | quote }}
+  GCP_PROJECT_ID: {{ include "hope-metahuman-service.projectId" . | quote }}
   SERVICE_NAME: 'agent-engine'
   HOST: '0.0.0.0'
   PORT: '2026'
   VERTEX_LOCATION: {{ .Values.vertex.location | quote }}
   VERTEX_CHAT_MODEL: {{ .Values.vertex.chatModel | quote }}
+  AUTHOR_MODEL_PROVIDER: 'vertex'
+  AUTHOR_GEMINI_MODEL: {{ .Values.vertex.authorModel | quote }}
+  AUTHOR_RESEARCH_GEMINI_MODEL: {{ .Values.vertex.authorModel | quote }}
   VERTEX_EMBEDDING_MODEL: {{ .Values.vertex.embeddingModel | quote }}
   VERTEX_USE_CONTEXT_CACHE: 'true'
   REDIS_KEY_PREFIX: 'agent-engine:'
@@ -34,9 +37,30 @@ data:
   REDIS_CHANNEL_PREFIX: 'aegra:run:'
   SESSION_TTL_SECONDS: '3600'
   CONTEXT_WINDOW: '10'
-  INTERNAL_SVC_JWT_KID: 'hope-lms-api-v1'
-  API_CALLBACK_JWT_KID: 'hope-lms-agent-engine-callback-v1'
+  INTERNAL_SVC_JWT_KID: 'hope-metahuman-api-v1'
+  API_CALLBACK_JWT_KID: 'hope-metahuman-agent-engine-callback-v1'
   OTEL_SERVICE_NAME: 'agent-engine'
+  # Workflow sandbox (ADR 0105). With mode `disabled` the engine denies `code`
+  # nodes instead of executing them; declarative workflows are unaffected.
+  WORKFLOW_SANDBOX_MODE: {{ .Values.workflowSandbox.mode | quote }}
+  {{- if eq .Values.workflowSandbox.mode "k8s" }}
+  WORKFLOW_SANDBOX_NAMESPACE: {{ .Values.workflowSandbox.namespace | quote }}
+  WORKFLOW_SANDBOX_PORT: '9110'
+  # The pool connects to pod IPs, which no certificate can name before the pod
+  # is scheduled, so the handshake is verified against the service name.
+  WORKFLOW_SANDBOX_SERVER_NAME: 'workflow-runner.{{ .Values.workflowSandbox.namespace }}.svc.cluster.local'
+  WORKFLOW_SANDBOX_REQUIRE_MTLS: 'true'
+  WORKFLOW_SANDBOX_CLIENT_CERT_FILE: '/etc/sandbox-tls/tls.crt'
+  WORKFLOW_SANDBOX_CLIENT_KEY_FILE: '/etc/sandbox-tls/tls.key'
+  WORKFLOW_SANDBOX_CA_FILE: '/etc/sandbox-tls/ca.crt'
+  # Per-tenant ceilings on a shared pool (SC-5). Raising these lets one tenant
+  # take a larger share of the warm pool from everyone else.
+  WORKFLOW_SANDBOX_MAX_CONCURRENT_PER_ORG: '4'
+  WORKFLOW_SANDBOX_CLAIMS_PER_SECOND: '2'
+  WORKFLOW_SANDBOX_CLAIM_BURST: '8'
+  WORKFLOW_SANDBOX_CLAIM_ATTEMPTS: '3'
+  WORKFLOW_SANDBOX_CONNECT_TIMEOUT_SECONDS: '5'
+  {{- end }}
 ---
 apiVersion: v1
 kind: Service
@@ -45,7 +69,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     app: agent-engine
-    {{- include "hope-lms.labels" . | nindent 4 }}
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
 spec:
   selector:
     app: agent-engine
@@ -63,7 +87,7 @@ metadata:
   namespace: {{ .Release.Namespace }}
   labels:
     app: agent-engine
-    {{- include "hope-lms.labels" . | nindent 4 }}
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.agentEngine.replicas }}
   progressDeadlineSeconds: 600
@@ -75,6 +99,7 @@ spec:
       labels:
         app: agent-engine
         app.kubernetes.io/instance: {{ .Release.Name }}
+        {{- include "hope-metahuman-service.podLabels" . | nindent 8 }}
     spec:
       serviceAccountName: agent-engine
       securityContext:
@@ -84,6 +109,15 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- if and (eq .Values.workflowSandbox.mode "k8s") .Values.workflowSandbox.tls.clientCertPem }}
+        # The client half of the sandbox mTLS pair. Optional at the volume level
+        # so a mode change does not wedge the engine on a missing secret.
+        - name: sandbox-tls
+          secret:
+            secretName: agent-engine-sandbox-tls
+            optional: true
+            defaultMode: 0400
+        {{- end }}
       containers:
         - name: agent-engine
           image: {{ .Values.agentEngine.image | quote }}
@@ -99,13 +133,20 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- if and (eq .Values.workflowSandbox.mode "k8s") .Values.workflowSandbox.tls.clientCertPem }}
+            - name: sandbox-tls
+              mountPath: /etc/sandbox-tls
+              readOnly: true
+            {{- end }}
           resources:
             requests:
               cpu: '250m'
               memory: '512Mi'
+              ephemeral-storage: '256Mi'
             limits:
               cpu: '1000m'
               memory: '1Gi'
+              ephemeral-storage: '256Mi'
           startupProbe:
             httpGet:
               path: /health
@@ -137,7 +178,7 @@ metadata:
   name: agent-engine
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "hope-lms.labels" . | nindent 4 }}
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
@@ -167,7 +208,7 @@ metadata:
   name: agent-engine-ingress
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "hope-lms.labels" . | nindent 4 }}
+    {{- include "hope-metahuman-service.labels" . | nindent 4 }}
 spec:
   podSelector:
     matchLabels:

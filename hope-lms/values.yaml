@@ -1,132 +1,192 @@
-# Default values for the HOPE LMS Marketplace chart.
+# Default values for the HOPE MTP Marketplace chart (MTP + HOPE Metahuman Service).
 #
-# Every value here is a Marketplace-collectible parameter declared in
-# ../schema.yaml. At deploy time Google Cloud Marketplace overrides the image
-# references (after re-publishing the images) and the customer-supplied
-# configuration. The defaults below exist so the chart renders during local
-# `helm template` / `mpdev verify` smoke tests; they are NOT production values.
+# Every value here is either a Marketplace-collectible parameter declared in
+# ../schema.yaml or a committed constant. At deploy time Google Cloud
+# Marketplace overrides the image references (after re-publishing the images)
+# and the customer-supplied configuration. The defaults below exist so the
+# chart renders during local `helm template` / `mpdev verify` smoke tests; they
+# are NOT production values.
+#
+# Layout: MTP's own workloads live under `mtp.*`, the in-cluster vector store
+# under `qdrant.*`, and everything the vendored HOPE subchart reads under
+# `hope.*` (the dependency alias in Chart.yaml). Values both products share —
+# the license, the GCP project, the Redis instance and the Marketplace
+# consumption-tracking label — live under Helm's `global`, which subcharts see.
 #
 # IMPORTANT: image fields are parameterized in ../schema.yaml (type: FULL).
-# The `api` image is the primary image (the '' key in schema.yaml), so it lives
-# at the product root path with no name segment; every other image is a sibling
-# beneath that root. Do not rely on these default registries — Marketplace
-# rewrites them to the customer's re-published locations at deploy time.
+# The MTP `api` image is the primary image (the '' key in schema.yaml), so it
+# lives at the product root path with no name segment; every other image is a
+# sibling beneath that root. Do not rely on these default registries —
+# Marketplace rewrites them to the customer's re-published locations.
 
-# ── Container images ──────────────────────────────────────────────────────────
-api:
-  image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms:0.1.0
-  replicas: 2
-web:
-  image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/web:0.1.0
-  replicas: 2
-agentEngine:
-  image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/agent-engine:0.1.0
-  replicas: 2
-a2f3dEngine:
-  image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/a2f3d-engine:0.1.0
-  replicas: 2
+# ── Shared with the HOPE subchart (Helm `global`) ────────────────────────────
+global:
+  # The signed offline license issued by the HOPE MTP license authority. One
+  # license covers both products: MTP's api verifies it with audience
+  # `hope-lms`, and HOPE's api accepts that audience too (ADR 0033). Without a
+  # valid, unexpired license neither API boots (CrashLoopBackOff).
+  license:
+    key: ''
+  gcp:
+    # The customer's GCP project ID this app is deployed into.
+    projectId: ''
+    # Deployment target tier. Marketplace installs are always 'prod'.
+    deployEnv: prod
+  secrets:
+    # One Memorystore (Redis) instance for both products; HOPE prefixes its keys
+    # (agent-engine:, a2f3d-engine:), MTP's api uses it for throttling.
+    redisUrl: ''
+  # ── Marketplace partner consumption tracking (REQUIRED by Google) ──────────
+  # Stamped on the Pod template of every workload in both charts (the HOPE
+  # subchart renders global.podLabels too). The URN identifies the HOPE MTP
+  # product listing and is the same for every customer, so it is a committed
+  # constant rather than a schema.yaml property. Sourced from Producer Portal >
+  # Overview > "Consumption tracking label". Changing or blanking it breaks
+  # Google's attribution of GKE consumption to this product; MTP's api also
+  # self-checks it at runtime and degrades if it disappears.
+  podLabels:
+    goog-partner-solution: isol_plb32_001kf00001f9fpxiaz_tnhnwby23bfj6igt4pzzrsagvuqjslqv
+
+consumptionTracking:
+  # Fail requests other than /health when the label is missing from the running
+  # MTP api Pod, per Google's guidance that an app should limit functionality
+  # until the label is reinstated. Only ever 'false' for local chart smoke tests.
+  enforced: true
+
+# ── MTP container images ─────────────────────────────────────────────────────
+mtp:
+  api:
+    image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms:0.2.0
+    replicas: 2
+  web:
+    image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/web:0.2.0
+    replicas: 2
+  sessionGateway:
+    image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/session-gateway:0.2.0
+    replicas: 2
+  assessmentEngine:
+    image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/assessment-engine:0.2.0
+    replicas: 2
+  curriculumEngine:
+    image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/curriculum-engine:0.2.0
+    replicas: 2
+  # Vertex AI / Document AI, reached through the customer's restricted Google
+  # API endpoints (no internet egress). Model names are release constants.
+  vertex:
+    location: us-central1
+    apiEndpoint: us-central1-aiplatform.googleapis.com
+    documentAiEndpoint: us-documentai.googleapis.com
+    assessmentModel: gemini-2.5-pro
+    planModel: gemini-2.5-pro
+    embeddingModel: gemini-embedding-001
+
+# ── In-cluster Qdrant vector store ────────────────────────────────────────────
+# Shared per cluster (MTP architecture §8): the curriculum engine indexes
+# learner documents into per-tenant `mtp-`-prefixed collections. Single
+# replica on a ReadWriteOnce claim; see templates/qdrant.yaml.
+qdrant:
+  image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/qdrant:0.2.0
+  # StorageClass for the index volume (schema type STORAGE_CLASS, SSD).
+  storageClass: ''
+  storageSize: 20Gi
+  # Server-side API key; auto-generated by Marketplace (GENERATED_PASSWORD).
+  apiKey: ''
 
 # Deployer image reference — recorded on the Application resource so the
-# Marketplace UI can show the installed version. Set by the release pipeline.
-deployerImage: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/deployer:0.1.0
+# Marketplace UI can show the installed version. Unlike the image fields above
+# this is not a schema.yaml image property, so Marketplace never rewrites it at
+# deploy time; scripts/sync-marketplace-version.mjs pins its tag to the release
+# version, otherwise a release silently reports its predecessor.
+deployerImage: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/deployer:0.2.0
 
 # ── Reporting secret (Marketplace usage reporting / entitlement) ──────────────
 # Injected by Marketplace when the app is a paid listing. Referenced by the
 # Application resource. Left empty for private / BYOL installs.
 reportingSecret: ''
 
-# ── GCP deployment identifiers ────────────────────────────────────────────────
-gcp:
-  # The customer's air-gapped GCP project ID that this app is deployed into.
-  projectId: ''
-  # Deployment target tier. Marketplace installs are always 'prod'.
-  deployEnv: prod
-
-# ── Public URLs / domains ─────────────────────────────────────────────────────
+# ── MTP public URLs / domains ─────────────────────────────────────────────────
 domains:
-  # Absolute browser-facing URL of the web app, e.g. https://hope.agency.gov
+  # Absolute browser-facing URL of the MTP web portal, e.g. https://train.agency.gov
   appUrl: ''
-  # Allowed CORS origin for the API — normally identical to appUrl.
-  corsOrigin: ''
-  # Absolute API URL used as the JWT issuer, e.g. https://api.hope.agency.gov
-  jwtIssuer: ''
-  # Absolute web URL used as the JWT audience — normally identical to appUrl.
-  jwtAudience: ''
-  # Cookie domain shared by web + api, e.g. agency.gov
+  # Absolute public URL of the MTP api, e.g. https://api.train.agency.gov. Used
+  # as the JWT issuer, the OIDC callback origin and the browser API URL.
+  apiUrl: ''
+  # Parent domain shared by the web and api hosts, e.g. agency.gov
   cookieDomain: ''
-  # Absolute public base URL of the API as reached by browsers (branding assets).
-  brandingAssetPublicBaseUrl: ''
-  # OIDC redirect + post-login URLs (optional — only if the customer uses SSO).
-  oidcOktaRedirectUri: ''
-  oidcOktaPostLoginRedirect: ''
-  # Display name shown on the login screen SSO button.
-  oktaDisplayName: ''
+  # Browser-side WebSocket endpoint for live sessions. Empty derives
+  # wss://<api host>/ws — the customer's ingress must route /ws on the api host
+  # to the mtp-session-gateway Service (see the deploy guide).
+  gatewayWsUrl: ''
+  # Public URL of the bundled HOPE api. Empty derives from hope.domains.jwtIssuer.
+  # Recorded for operators; the per-tenant binding is a post-install step.
+  hopeApiUrl: ''
+  # URL the browser is sent to after successful SSO (optional; defaults to appUrl).
+  oidcPostLoginRedirect: ''
 
-# ── Cloud KMS (customer pre-provisioned, HSM-backed) ──────────────────────────
+# ── MTP Cloud KMS (customer pre-provisioned, HSM-backed) ──────────────────────
 kms:
   # Fully-qualified Cloud KMS cryptoKeyVersion used to sign access tokens.
   jwtKmsKeyVersion: ''
   # Fully-qualified Cloud KMS cryptoKey used to wrap TOTP secrets / auth data.
   authDataKmsKey: ''
+  # Optional dedicated envelope key for learner documents and extractions;
+  # empty falls back to authDataKmsKey inside the api.
+  curriculumDataKmsKey: ''
 
-# ── Workload Identity: customer-provisioned GCP service account emails ────────
+# ── MTP Workload Identity: customer-provisioned GCP service account emails ────
 # Each Kubernetes ServiceAccount is annotated with its bound GSA so pods reach
-# Secret Manager / KMS / Cloud SQL without static keys (FedRAMP IA-2, IA-5).
+# KMS / Vertex AI / Document AI / GCS without static keys (IA-2, IA-5).
 serviceAccounts:
   apiGsa: ''
   webGsa: ''
-  agentEngineGsa: ''
-  a2f3dEngineGsa: ''
+  sessionGatewayGsa: ''
+  assessmentEngineGsa: ''
+  curriculumEngineGsa: ''
 
-# ── Application secrets (rendered into Kubernetes Secrets) ────────────────────
-# Peppers and the CAPTCHA HMAC key are auto-generated by Marketplace
-# (GENERATED_PASSWORD). Connection strings and the internal service keypairs
-# are supplied by the customer. All are injected as env vars; the API's
-# secret-loader skips Secret Manager whenever the env var is already present.
+# ── MTP application secrets (rendered into Kubernetes Secrets) ────────────────
+# Peppers and service tokens are auto-generated by Marketplace
+# (GENERATED_PASSWORD). The database URL and the optional mail / bootstrap
+# credentials are supplied by the customer. All are injected as env vars; with
+# SECRETS_SOURCE=env the services never consult Secret Manager (ADR 0033).
 secrets:
   databaseUrl: ''
-  redisUrl: ''
   sessionPepper: ''
   invitationPepper: ''
   ipHashPepper: ''
-  captchaHmacKey: ''
-  # Keypair 1: api signs internal service tokens, engines verify them.
-  internalSvcJwtPrivateKey: ''
-  internalSvcJwtPublicKey: ''
-  # Keypair 2: agent-engine signs callbacks to api, api verifies them.
-  agentEngineCallbackJwtPublicKey: ''
-  apiCallbackJwtPrivateKey: ''
+  apiKeySecretPepper: ''
+  # Shared by mtp-api and mtp-session-gateway — one value, both sides.
+  gatewayServiceToken: ''
+  # Bearer tokens the api presents to each engine; each engine checks its own.
+  assessmentEngineToken: ''
+  curriculumEngineToken: ''
+  # Optional: SMTP App Password for transactional mail (required when mail.smtpUser is set).
+  smtpPassword: ''
+  # Optional: initial password for the bootstrap application owner (>= 14 chars).
+  bootstrapOwnerPassword: ''
 
-# ── Offline license (REQUIRED) ────────────────────────────────────────────────
-# The signed license blob issued by the HOPE LMS license authority. Without a
-# valid, unexpired license the API refuses to boot (CrashLoopBackOff).
-license:
-  key: ''
+# ── MTP transactional mail (optional) ─────────────────────────────────────────
+mail:
+  smtpHost: ''
+  smtpPort: 587
+  smtpUser: ''
+  from: ''
 
-# ── AI conversation tier: NVIDIA Audio2Face-3D NIM (customer-supplied) ────────
-a2f3d:
-  # gRPC endpoint of the customer's NIM. Left as-is per deployment; the chart
-  # does not ship or manage the NIM image or its NGC licensing.
-  nimUrl: 'nim-a2f3d.hope-lms.svc.cluster.local:52000'
-  # 'mtls' mounts client certs from the nimMtls.* PEM values below; 'disabled'
-  # skips the mount (use only when the NIM enforces no transport auth).
-  nimSecureMode: 'mtls'
-  nimMtls:
-    rootCaPem: ''
-    clientCertPem: ''
-    clientKeyPem: ''
+# ── MTP document-grounded curriculum: Document AI (optional) ──────────────────
+docai:
+  # Form Parser processor id in the customer's project. Empty disables Document
+  # AI extraction (the engine falls back to its local text analyzer).
+  processorId: ''
+  location: us
 
-# ── Vertex AI (agent-engine) ──────────────────────────────────────────────────
-vertex:
-  location: us-central1
-  chatModel: gemini-2.5-flash-lite
-  embeddingModel: text-embedding-005
+# ── MTP storage (optional) ────────────────────────────────────────────────────
+storage:
+  # GCS bucket for uploaded learner documents. Empty seals document bytes in
+  # the database instead.
+  documentsBucket: ''
 
-# ── Feature toggles ───────────────────────────────────────────────────────────
+# ── MTP feature toggles ───────────────────────────────────────────────────────
 # Run the idempotent bootstrap seed (application owner) on first boot.
 seedOnBoot: true
-# CAPTCHA must remain enabled in production (FedRAMP SI-3, SC-5).
-captchaEnabled: true
 
 # Bootstrap application owner created by the seed (idempotent). Uses approved
 # non-PII placeholder values; the customer changes these post-install.
@@ -134,3 +194,37 @@ bootstrapOwner:
   email: admin@hope-lms.example
   firstName: Harlin
   lastName: Ricks
+
+# ── HOPE Metahuman Service (vendored subchart; values under the `hope` alias) ─
+# Only the values that differ from the subchart's own defaults are set here.
+# Everything under hope.* is addressable from ../schema.yaml as `hope.<path>`
+# and resolves to `.Values.<path>` inside charts/hope-metahuman-service.
+hope:
+  enabled: true
+  # This chart owns the single Application resource and the smoke-test Pod;
+  # the subchart must not render its own (see the subchart's values.yaml).
+  standalone: false
+  api:
+    image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/hope-api:0.2.0
+    replicas: 2
+  adminWeb:
+    image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/hope-admin-web:0.2.0
+    replicas: 2
+  agentEngine:
+    image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/hope-agent-engine:0.2.0
+    replicas: 2
+  a2f3dEngine:
+    image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/hope-a2f3d-engine:0.2.0
+    replicas: 2
+  liveAvatars:
+    enabled: false
+    image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/hope-avatar-bridge:0.2.0
+  # The gVisor sandbox for tenant-authored code creates its own Namespace and
+  # RBAC, which the Marketplace deployer cannot apply (it applies everything
+  # into the release namespace). Declarative workflows still run; a `code`
+  # node fails with SANDBOX_UNAVAILABLE. The image is still declared in
+  # ../schema.yaml because Marketplace re-publishes every declared image.
+  workflowSandbox:
+    mode: disabled
+    image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/hope-workflow-runner:0.2.0
+  deployerImage: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/deployer:0.2.0
