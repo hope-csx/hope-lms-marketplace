@@ -167,6 +167,7 @@ spec:
     name: a2f3d-engine
   minReplicas: {{ .Values.a2f3dEngine.replicas }}
   maxReplicas: 10
+  {{- include "hope-metahuman-service.hpaBehavior" . | nindent 2 }}
   metrics:
     - type: Resource
       resource:

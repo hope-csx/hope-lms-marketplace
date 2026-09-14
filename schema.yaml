@@ -37,7 +37,7 @@ x-google-marketplace:
   # path convention at the product root itself, so the MTP `api` must be
   # published to that exact path with no name segment. The others are
   # additional images at sibling paths beneath it — MTP's own, the HOPE
-  # Metahuman Service images (prefixed `hope-`), and the mirrored Qdrant. See
+  # Metahuman Service images (prefixed `hope-`), and the rebuilt Qdrant. See
   # "Registry layout" in README.md.
   images:
     '':
@@ -444,6 +444,66 @@ properties:
       Fully-qualified Cloud KMS cryptoKey used to wrap tenant-supplied tool
       credentials. Must differ from the auth-data key so a tenant credential
       can be revoked without invalidating live sessions.
+  # One key per data domain; the HOPE api validates all of them at boot and
+  # refuses to start without any one of them (SC-12). They may share a key ring.
+  hope.kms.workflowSigningKmsKeyVersion:
+    type: string
+    title: 'HOPE: workflow-signing KMS key version'
+    description: >-
+      Fully-qualified Cloud KMS cryptoKeyVersion used to sign published workflow
+      definitions. Must be an ASYMMETRIC_SIGN key.
+  hope.kms.guardrailDataKmsKey:
+    type: string
+    title: 'HOPE: guardrail-data KMS key'
+    description: Fully-qualified ENCRYPT_DECRYPT cryptoKey wrapping retained guardrail excerpts.
+  hope.kms.webhookSecretKmsKey:
+    type: string
+    title: 'HOPE: webhook-secret KMS key'
+    description: Fully-qualified ENCRYPT_DECRYPT cryptoKey wrapping tenant webhook signing secrets.
+  hope.kms.conversationDataKmsKey:
+    type: string
+    title: 'HOPE: conversation-data KMS key'
+    description: Fully-qualified ENCRYPT_DECRYPT cryptoKey wrapping stored conversation content.
+  hope.kms.workflowLogDataKmsKey:
+    type: string
+    title: 'HOPE: workflow-log KMS key'
+    description: Fully-qualified ENCRYPT_DECRYPT cryptoKey wrapping workflow execution logs.
+
+  # ── HOPE transactional mail (REQUIRED) ──────────────────────────────────────
+  # The HOPE api relays invitations and password resets, and refuses to start a
+  # prod deployment on the log transport, which would write single-use
+  # invitation tokens into the application log.
+  hope.mail.smtpHost:
+    type: string
+    title: 'HOPE: SMTP relay host'
+    description: Relay for HOPE invitations and password resets, e.g. smtp.agency.gov.
+  hope.mail.smtpPort:
+    type: integer
+    title: 'HOPE: SMTP port'
+    description: 587 for STARTTLS, 465 for implicit TLS.
+    default: 587
+  hope.mail.smtpUser:
+    type: string
+    title: 'HOPE: SMTP user'
+    description: Leave empty for an IP-authorised relay; when set, supply the password below.
+    default: ''
+  hope.mail.fromAddress:
+    type: string
+    title: 'HOPE: sender address'
+    description: >-
+      Envelope and header From address for HOPE mail, e.g. no-reply@agency.gov.
+      Must be a domain your relay is authorised to send for.
+  hope.mail.fromName:
+    type: string
+    title: 'HOPE: sender display name'
+    default: HOPE Metahuman Service
+  hope.secrets.mailSmtpPassword:
+    type: string
+    title: 'HOPE: SMTP password'
+    description: Required when a HOPE SMTP user is set.
+    default: ''
+    x-google-marketplace:
+      type: MASKED_FIELD
 
   # ── HOPE Workload Identity: customer GCP service account emails ─────────────
   hope.serviceAccounts.apiGsa:
@@ -546,6 +606,14 @@ properties:
         includeSymbols: false
         base64: true
   hope.secrets.ipHashPepper:
+    type: string
+    x-google-marketplace:
+      type: GENERATED_PASSWORD
+      generatedPassword:
+        length: 48
+        includeSymbols: false
+        base64: true
+  hope.secrets.apiKeySecretPepper:
     type: string
     x-google-marketplace:
       type: GENERATED_PASSWORD
@@ -667,6 +735,13 @@ required:
   - hope.kms.jwtKmsKeyVersion
   - hope.kms.authDataKmsKey
   - hope.kms.toolCredentialKmsKey
+  - hope.kms.workflowSigningKmsKeyVersion
+  - hope.kms.guardrailDataKmsKey
+  - hope.kms.webhookSecretKmsKey
+  - hope.kms.conversationDataKmsKey
+  - hope.kms.workflowLogDataKmsKey
+  - hope.mail.smtpHost
+  - hope.mail.fromAddress
   - hope.serviceAccounts.apiGsa
   - hope.serviceAccounts.agentEngineGsa
   - hope.secrets.databaseUrl

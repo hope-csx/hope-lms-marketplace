@@ -257,6 +257,7 @@ spec:
     name: mtp-api
   minReplicas: {{ .Values.mtp.api.replicas }}
   maxReplicas: 10
+  {{- include "hope-lms.hpaBehavior" . | nindent 2 }}
   metrics:
     - type: Resource
       resource:

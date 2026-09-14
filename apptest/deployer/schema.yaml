@@ -125,6 +125,30 @@ properties:
   hope.kms.toolCredentialKmsKey:
     type: string
     default: projects/hope-lms-apptest/locations/us/keyRings/apptest/cryptoKeys/hope-tool-credentials
+  hope.kms.workflowSigningKmsKeyVersion:
+    type: string
+    default: projects/hope-lms-apptest/locations/us/keyRings/apptest/cryptoKeys/hope-workflow-signing/cryptoKeyVersions/1
+  hope.kms.guardrailDataKmsKey:
+    type: string
+    default: projects/hope-lms-apptest/locations/us/keyRings/apptest/cryptoKeys/hope-guardrail-data
+  hope.kms.webhookSecretKmsKey:
+    type: string
+    default: projects/hope-lms-apptest/locations/us/keyRings/apptest/cryptoKeys/hope-webhook-secrets
+  hope.kms.conversationDataKmsKey:
+    type: string
+    default: projects/hope-lms-apptest/locations/us/keyRings/apptest/cryptoKeys/hope-conversation-data
+  hope.kms.workflowLogDataKmsKey:
+    type: string
+    default: projects/hope-lms-apptest/locations/us/keyRings/apptest/cryptoKeys/hope-workflow-log-data
+
+  # The verification cluster has no relay. The api validates these at boot but
+  # only dials the relay when it sends, which the smoke test never does.
+  hope.mail.smtpHost:
+    type: string
+    default: smtp.apptest.invalid
+  hope.mail.fromAddress:
+    type: string
+    default: no-reply@apptest.invalid
 
   hope.serviceAccounts.apiGsa:
     type: string

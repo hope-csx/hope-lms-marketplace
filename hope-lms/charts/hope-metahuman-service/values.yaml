@@ -150,6 +150,19 @@ kms:
   # credentials. Must be a different key from authDataKmsKey so a tenant
   # credential can be revoked without invalidating live sessions (SC-12).
   toolCredentialKmsKey: ''
+  # The api refuses to start in production without each of these: every data
+  # domain gets its own key so one can be rotated or revoked without touching
+  # the others (SC-12). They may all live in one key ring.
+  # Signs published workflow definitions (ASYMMETRIC_SIGN, a cryptoKeyVersion).
+  workflowSigningKmsKeyVersion: ''
+  # Wraps retained guardrail excerpts (ENCRYPT_DECRYPT).
+  guardrailDataKmsKey: ''
+  # Wraps tenant webhook signing secrets (ENCRYPT_DECRYPT).
+  webhookSecretKmsKey: ''
+  # Wraps stored conversation content (ENCRYPT_DECRYPT).
+  conversationDataKmsKey: ''
+  # Wraps workflow execution logs (ENCRYPT_DECRYPT).
+  workflowLogDataKmsKey: ''
 
 # ── Workload Identity: customer-provisioned GCP service account emails ────────
 # Each Kubernetes ServiceAccount is annotated with its bound GSA so pods reach
@@ -171,7 +184,10 @@ secrets:
   sessionPepper: ''
   invitationPepper: ''
   ipHashPepper: ''
+  apiKeySecretPepper: ''
   captchaHmacKey: ''
+  # Password for mail.smtpUser. Required whenever that user is set.
+  mailSmtpPassword: ''
   # Keypair 1: api signs internal service tokens, engines verify them.
   internalSvcJwtPrivateKey: ''
   internalSvcJwtPublicKey: ''
@@ -206,6 +222,23 @@ secrets:
 integrations:
   # Customer-operated app authentication endpoint. Hosted third-party endpoints
   # are not supported.
+
+# ── Transactional mail (REQUIRED) ─────────────────────────────────────────────
+# The api relays invitations and password resets. It refuses to start a prod
+# deployment on the log transport, because that writes single-use invitation
+# tokens into the application log (IA-5, AU-9) — so a relay is not optional.
+mail:
+  # SMTP relay host, e.g. smtp.agency.gov.
+  smtpHost: ''
+  # 587 (STARTTLS) or 465 (implicit TLS). Port 25 is neither offered nor safe.
+  smtpPort: 587
+  # Leave empty for an IP-authorised relay; set it and supply
+  # secrets.mailSmtpPassword.
+  smtpUser: ''
+  # Envelope and header From address. Must be a domain the relay is authorised
+  # to send for, or messages fail SPF/DKIM.
+  fromAddress: ''
+  fromName: 'HOPE Metahuman Service'
 
 # ── Offline license (REQUIRED) ────────────────────────────────────────────────
 # The signed license blob issued by the HOPE Metahuman Service license authority. Without a

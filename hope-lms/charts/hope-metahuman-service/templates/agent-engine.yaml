@@ -35,6 +35,10 @@ data:
   REDIS_KEY_PREFIX: 'agent-engine:'
   REDIS_BROKER_ENABLED: 'true'
   REDIS_CHANNEL_PREFIX: 'aegra:run:'
+  # The control-plane tool broker the engine calls back into. Mandatory outside
+  # local development — tool_gateway resolves it at import time and raises when
+  # it is unset, so without this the engine never finishes starting.
+  API_BASE_URL: 'http://api.{{ .Release.Namespace }}.{{ include "hope-metahuman-service.svcDomain" . }}'
   SESSION_TTL_SECONDS: '3600'
   CONTEXT_WINDOW: '10'
   INTERNAL_SVC_JWT_KID: 'hope-metahuman-api-v1'
@@ -186,6 +190,7 @@ spec:
     name: agent-engine
   minReplicas: {{ .Values.agentEngine.replicas }}
   maxReplicas: 10
+  {{- include "hope-metahuman-service.hpaBehavior" . | nindent 2 }}
   metrics:
     - type: Resource
       resource:

@@ -164,6 +164,7 @@ spec:
     name: mtp-curriculum-engine
   minReplicas: {{ .Values.mtp.curriculumEngine.replicas }}
   maxReplicas: 10
+  {{- include "hope-lms.hpaBehavior" . | nindent 2 }}
   metrics:
     - type: Resource
       resource:

@@ -149,6 +149,7 @@ spec:
     name: mtp-web
   minReplicas: {{ .Values.mtp.web.replicas }}
   maxReplicas: 10
+  {{- include "hope-lms.hpaBehavior" . | nindent 2 }}
   metrics:
     - type: Resource
       resource:

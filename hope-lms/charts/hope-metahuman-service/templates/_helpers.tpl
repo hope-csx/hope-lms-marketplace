@@ -68,3 +68,29 @@ because a selector is immutable once created.
 {{- toYaml . -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Scale-up behaviour shared by every HorizontalPodAutoscaler in this chart.
+
+Node and Python startup pegs the 100m CPU request for a minute or two. An
+unstabilised HPA reads that as sustained load at several hundred percent of
+target and answers by scaling straight to maxReplicas, before a single request
+has been served. Stabilising scale-up makes the controller act on the LOWEST
+recommendation across the window, so a boot spike is ignored while real
+sustained load still scales within five minutes. Scale-down keeps the
+controller default, which is already conservative.
+*/}}
+{{- define "hope-metahuman-service.hpaBehavior" -}}
+behavior:
+  scaleUp:
+    stabilizationWindowSeconds: 300
+    # And cap the rate. Stabilisation alone does not help when startup is slow
+    # rather than spiky: the first replica to report ready is still finishing
+    # its own boot, so the controller sees one hot pod and jumps to
+    # maxReplicas. One pod a minute keeps a rollout from multiplying its own
+    # startup work — every api replica runs the schema migration.
+    policies:
+      - type: Pods
+        value: 1
+        periodSeconds: 60
+{{- end -}}

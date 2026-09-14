@@ -149,14 +149,32 @@ Complete these steps once per cluster, before your first CLI install.
    # https://github.com/GoogleCloudPlatform/marketplace-k8s-app-tools/blob/master/docs/mpdev.md
    ```
 
-4. **Provision the customer-side prerequisites** in your GCP project: GKE
-   with Workload Identity and Dataplane V2; Cloud SQL for PostgreSQL 16 with
-   **two databases** (one for MTP, one for HOPE — never shared); Memorystore
-   for Redis; Cloud KMS keys for each product; Workload Identity service
-   accounts; an SSD StorageClass for the 20 GiB Qdrant volume; two RS256
-   keypairs for HOPE's internal service tokens; and a valid HOPE MTP license
-   from your CornerstoneX representative. The full prerequisite checklist and
-   every parameter's meaning is in the
+4. **Provision the customer-side prerequisites** in your GCP project:
+
+   - GKE with Workload Identity and Dataplane V2.
+   - Cloud SQL for PostgreSQL 16 with **two databases**, one for MTP and one
+     for HOPE. They must never share a database — both run schema migrations.
+   - Memorystore for Redis (one instance, shared).
+   - **Cloud KMS**, HSM-backed. Each product keeps one key per data domain so
+     any one can be rotated or revoked alone; a shared key ring is fine.
+     MTP needs one `ASYMMETRIC_SIGN` key version and one `ENCRYPT_DECRYPT` key
+     (a second, for learner documents, is optional). HOPE needs two
+     `ASYMMETRIC_SIGN` key versions (access tokens, workflow signing) and six
+     `ENCRYPT_DECRYPT` keys (auth data, tool credentials, guardrail data,
+     webhook secrets, conversation data, workflow logs). **The HOPE api
+     refuses to start without every one of them.**
+   - Workload Identity service accounts for each workload that calls a Google
+     API.
+   - An SSD StorageClass for the 20 GiB Qdrant volume.
+   - Two RS256 keypairs for HOPE's internal service tokens.
+   - **An SMTP relay for HOPE** — a host and a sender address it is authorised
+     to send for. HOPE relays invitations and password resets and refuses to
+     start a production deployment on its logging transport, which would write
+     single-use invitation tokens into the application log. MTP's own mail
+     settings stay optional.
+   - A valid HOPE MTP license from your CornerstoneX representative.
+
+   Every parameter's meaning is in the
    [Deployment & Configuration Guide](docs/deploy-guide.html) — the parameter
    names there match the `x-google-marketplace` schema names used below exactly.
 
@@ -203,6 +221,13 @@ Complete these steps once per cluster, before your first CLI install.
      "hope.kms.jwtKmsKeyVersion": "projects/YOUR_PROJECT_ID/locations/us/keyRings/hope/cryptoKeys/jwt-signing/cryptoKeyVersions/1",
      "hope.kms.authDataKmsKey": "projects/YOUR_PROJECT_ID/locations/us/keyRings/hope/cryptoKeys/auth-data",
      "hope.kms.toolCredentialKmsKey": "projects/YOUR_PROJECT_ID/locations/us/keyRings/hope/cryptoKeys/tool-credentials",
+     "hope.kms.workflowSigningKmsKeyVersion": "projects/YOUR_PROJECT_ID/locations/us/keyRings/hope/cryptoKeys/workflow-signing/cryptoKeyVersions/1",
+     "hope.kms.guardrailDataKmsKey": "projects/YOUR_PROJECT_ID/locations/us/keyRings/hope/cryptoKeys/guardrail-data",
+     "hope.kms.webhookSecretKmsKey": "projects/YOUR_PROJECT_ID/locations/us/keyRings/hope/cryptoKeys/webhook-secrets",
+     "hope.kms.conversationDataKmsKey": "projects/YOUR_PROJECT_ID/locations/us/keyRings/hope/cryptoKeys/conversation-data",
+     "hope.kms.workflowLogDataKmsKey": "projects/YOUR_PROJECT_ID/locations/us/keyRings/hope/cryptoKeys/workflow-log-data",
+     "hope.mail.smtpHost": "smtp.agency.gov",
+     "hope.mail.fromAddress": "no-reply@agency.gov",
      "hope.serviceAccounts.apiGsa": "hope-api@YOUR_PROJECT_ID.iam.gserviceaccount.com",
      "hope.serviceAccounts.agentEngineGsa": "hope-agent-engine@YOUR_PROJECT_ID.iam.gserviceaccount.com",
      "hope.secrets.databaseUrl": "postgresql://USER:PASSWORD@HOST:5432/hope_metahuman",

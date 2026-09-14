@@ -22,10 +22,30 @@ data:
   PORT: '3001'
   NODE_ENV: 'production'
   GCP_PROJECT_ID: {{ include "hope-metahuman-service.projectId" . | quote }}
+  # Every secret this api needs is rendered into api-secret by app-secrets.yaml;
+  # never fall back to Secret Manager, which the customer's service account
+  # cannot read (see the note in apps/api/src/config/secret-loader.ts).
+  SECRETS_SOURCE: 'env'
   DEPLOY_ENV: {{ include "hope-metahuman-service.deployEnv" . | quote }}
   JWT_KMS_KEY_VERSION: {{ .Values.kms.jwtKmsKeyVersion | quote }}
   AUTH_DATA_KMS_KEY: {{ .Values.kms.authDataKmsKey | quote }}
   TOOL_CREDENTIAL_KMS_KEY: {{ .Values.kms.toolCredentialKmsKey | quote }}
+  # One key per data domain; the api validates all of them at boot (SC-12).
+  WORKFLOW_SIGNING_KMS_KEY_VERSION: {{ .Values.kms.workflowSigningKmsKeyVersion | quote }}
+  GUARDRAIL_DATA_KMS_KEY: {{ .Values.kms.guardrailDataKmsKey | quote }}
+  WEBHOOK_SECRET_KMS_KEY: {{ .Values.kms.webhookSecretKmsKey | quote }}
+  CONVERSATION_DATA_KMS_KEY: {{ .Values.kms.conversationDataKmsKey | quote }}
+  WORKFLOW_LOG_DATA_KMS_KEY: {{ .Values.kms.workflowLogDataKmsKey | quote }}
+  # A prod deployment must relay mail rather than log it: the log transport
+  # would write single-use invitation tokens to the application log.
+  MAIL_TRANSPORT: 'smtp'
+  MAIL_SMTP_HOST: {{ .Values.mail.smtpHost | quote }}
+  MAIL_SMTP_PORT: {{ .Values.mail.smtpPort | quote }}
+  {{- if .Values.mail.smtpUser }}
+  MAIL_SMTP_USER: {{ .Values.mail.smtpUser | quote }}
+  {{- end }}
+  MAIL_FROM_ADDRESS: {{ .Values.mail.fromAddress | quote }}
+  MAIL_FROM_NAME: {{ .Values.mail.fromName | quote }}
   JWT_ISSUER: {{ .Values.domains.jwtIssuer | quote }}
   JWT_AUDIENCE: {{ .Values.domains.jwtAudience | quote }}
   APP_URL: {{ .Values.domains.appUrl | quote }}
@@ -218,6 +238,7 @@ spec:
     name: api
   minReplicas: {{ .Values.api.replicas }}
   maxReplicas: 10
+  {{- include "hope-metahuman-service.hpaBehavior" . | nindent 2 }}
   metrics:
     - type: Resource
       resource:
