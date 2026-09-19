@@ -8,18 +8,16 @@ x-google-marketplace:
   # The release version. MUST match the release tag on the deployer image.
   # Kept in lockstep with hope-lms/Chart.yaml and the deployer tag by
   # scripts/sync-marketplace-version.mjs.
-  publishedVersion: '0.2.0'
+  publishedVersion: '0.2.1'
   publishedVersionMetadata:
     releaseNote: >-
-      HOPE MTP 0.2 bundles the HOPE Metahuman Service with the Metahuman
-      Training Platform as one Kubernetes application: the MTP web portal,
-      api, session gateway, assessment and curriculum engines and an
-      in-cluster Qdrant vector store install alongside the HOPE api, admin
-      portal, agent engine and Audio2Face-3D engine, under a single offline
-      license. This is a new application generation, not an in-place upgrade
-      of 0.1.x: image names, deployment parameters and Kubernetes resource
-      names have changed, and a 0.1.x install must be removed before 0.2 is
-      installed into the same namespace.
+      HOPE MTP 0.2.1 refreshes both the Metahuman Training Platform and the
+      bundled HOPE Metahuman Service. It adds the current course-authoring and
+      approval improvements, Deepgram Flux speech-to-text, and support for a
+      customer-operated Audio2Face-3D inference server built from NVIDIA's
+      open-source SDK and model weights. NVIDIA's end-of-life NIM is no longer
+      required. The inference server remains a customer-supplied prerequisite
+      and is not installed by this Marketplace package.
     releaseTypes:
       - Feature
     recommended: true
@@ -630,38 +628,38 @@ properties:
         includeSymbols: false
         base64: true
 
-  # ── HOPE NVIDIA Audio2Face-3D NIM (customer-supplied) ──────────────────────
+  # ── HOPE Audio2Face-3D inference server (customer-supplied) ────────────────
   hope.a2f3d.nimUrl:
     type: string
-    title: 'HOPE: NVIDIA NIM endpoint'
-    description: gRPC endpoint of your NVIDIA Audio2Face-3D NIM. Not shipped or managed by this app.
+    title: 'HOPE: Audio2Face-3D endpoint'
+    description: gRPC endpoint of your customer-operated Audio2Face-3D inference server. NVIDIA's NIM is end-of-life; use a server built from the open-source SDK or another server implementing the same A2FControllerService contract. The server is not shipped or managed by this app.
     default: nim-a2f3d.hope-metahuman.svc.cluster.local:52000
   # 'disabled' is deliberately not offered: the engine runs with
-  # APP_ENV=production and refuses an unauthenticated NIM connection there.
+  # APP_ENV=production and refuses an unauthenticated inference connection there.
   hope.a2f3d.nimSecureMode:
     type: string
-    title: 'HOPE: NIM transport security'
-    description: Authenticate to the NIM with client certificates. Supply the certificates below.
+    title: 'HOPE: Audio2Face-3D transport security'
+    description: Authenticate to the Audio2Face-3D inference server with client certificates. Supply the certificates below.
     default: mtls
     enum:
       - mtls
   hope.a2f3d.nimMtls.rootCaPem:
     type: string
-    title: 'HOPE: NIM root CA certificate (PEM)'
-    description: CA certificate that signed your NIM server certificate. Optional until the avatar tier is used.
+    title: 'HOPE: Audio2Face-3D root CA certificate (PEM)'
+    description: CA certificate that signed your inference server certificate. Optional until the avatar tier is used.
     default: ''
     x-google-marketplace:
       type: MASKED_FIELD
   hope.a2f3d.nimMtls.clientCertPem:
     type: string
-    title: 'HOPE: NIM client certificate (PEM)'
-    description: Client certificate the avatar engine presents to your NIM.
+    title: 'HOPE: Audio2Face-3D client certificate (PEM)'
+    description: Client certificate the avatar engine presents to your inference server.
     default: ''
     x-google-marketplace:
       type: MASKED_FIELD
   hope.a2f3d.nimMtls.clientKeyPem:
     type: string
-    title: 'HOPE: NIM client private key (PEM)'
+    title: 'HOPE: Audio2Face-3D client private key (PEM)'
     description: Private key for the client certificate above.
     default: ''
     x-google-marketplace:

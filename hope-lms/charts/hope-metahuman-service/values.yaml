@@ -246,13 +246,15 @@ mail:
 license:
   key: ''
 
-# ── AI conversation tier: NVIDIA Audio2Face-3D NIM (customer-supplied) ────────
+# ── AI conversation tier: Audio2Face-3D inference (customer-supplied) ─────────
 a2f3d:
-  # gRPC endpoint of the customer's NIM. Left as-is per deployment; the chart
-  # does not ship or manage the NIM image or its NGC licensing.
+  # gRPC endpoint of the customer's inference server. Left as-is per deployment;
+  # the chart does not ship or manage it. The nim* key names are frozen for
+  # compatibility with existing installs; NVIDIA's NIM they were named for is
+  # end-of-life, and their open-source SDK is the supported replacement.
   nimUrl: 'nim-a2f3d.hope-metahuman.svc.cluster.local:52000'
   # 'mtls' mounts client certs from the nimMtls.* PEM values below; 'disabled'
-  # skips the mount (use only when the NIM enforces no transport auth).
+  # skips the mount (use only when the server enforces no transport auth).
   nimSecureMode: 'mtls'
   nimMtls:
     rootCaPem: ''

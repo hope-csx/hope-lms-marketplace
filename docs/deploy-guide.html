@@ -294,7 +294,7 @@
           </ul>
           <p>
             Every Service is <code>ClusterIP</code>; you provide DNS, ingress and TLS (section 8).
-            Cloud SQL, Memorystore, Cloud KMS and the NVIDIA Audio2Face-3D NIM are prerequisites
+            Cloud SQL, Memorystore, Cloud KMS and an Audio2Face-3D inference server are prerequisites
             in your project (section 2). One offline license unlocks both products (section 3).
             After install, one manual step connects your training tenant to the bundled HOPE
             (section 7).
@@ -319,7 +319,7 @@
             <li><strong>An SSD-backed StorageClass</strong> for the 20 GiB Qdrant volume (<code>qdrant.storageClass</code>).</li>
             <li><strong>Two RS256 keypairs</strong> for HOPE's service-to-service tokens (section 5, HOPE connection strings) — generate with <code>openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048</code>.</li>
             <li><strong>A valid HOPE MTP license</strong> (section 3).</li>
-            <li><em>(optional avatar tier)</em> a reachable NVIDIA Audio2Face-3D NIM with its own NGC entitlement, and its mTLS certificates.</li>
+            <li><em>(optional avatar tier)</em> an NVIDIA L4-class GPU node and a reachable Audio2Face-3D inference server built from NVIDIA's open-source SDK and model weights (or an equivalent server implementing <code>A2FControllerService</code>), plus its mTLS certificates. NVIDIA's NIM is end-of-life and no NGC entitlement is required. Deploy this server before HOPE MTP; it is not installed by the Marketplace package.</li>
           </ol>
         </section>
 
@@ -1067,7 +1067,15 @@
             </table>
           </div>
 
-          <h3>HOPE — NVIDIA Audio2Face-3D NIM</h3>
+          <h3>HOPE — Audio2Face-3D inference server</h3>
+          <p>
+            Deploy the customer-operated inference server before HOPE MTP, expose its
+            <code>nvidia_ace</code> <code>A2FControllerService</code> over mTLS gRPC on port
+            <code>52000</code>, and issue a server certificate whose SAN covers the hostname
+            entered below. NVIDIA's NIM is end-of-life; the supported replacement is a server
+            built from NVIDIA's open-source Audio2Face-3D SDK and model weights. The legacy
+            <code>nim*</code> field names are retained for compatibility.
+          </p>
           <div class="table-wrap">
             <table>
               <thead>
@@ -1076,35 +1084,35 @@
               <tbody>
               <tr>
                 <td><code>hope.a2f3d.nimUrl</code></td>
-                <td>HOPE: NVIDIA NIM endpoint</td>
+                <td>HOPE: Audio2Face-3D endpoint</td>
                 <td>string</td>
                 <td>Optional</td>
-                <td>gRPC endpoint of your NVIDIA Audio2Face-3D NIM. Not shipped or managed by this app. Default: <code>nim-a2f3d.hope-metahuman.svc.cluster.local:52000</code>.</td>
+                <td>gRPC endpoint of your customer-operated Audio2Face-3D inference server. Not shipped or managed by this app. Default: <code>nim-a2f3d.hope-metahuman.svc.cluster.local:52000</code>.</td>
               </tr>
               <tr>
                 <td><code>hope.a2f3d.nimSecureMode</code></td>
-                <td>HOPE: NIM transport security</td>
+                <td>HOPE: Audio2Face-3D transport security</td>
                 <td>string</td>
                 <td>Optional</td>
-                <td>Authenticate to the NIM with client certificates. Supply the certificates below. Allowed: mtls. Default: <code>mtls</code>.</td>
+                <td>Authenticate to the inference server with client certificates. Supply the certificates below. Allowed: mtls. Default: <code>mtls</code>.</td>
               </tr>
               <tr>
                 <td><code>hope.a2f3d.nimMtls.rootCaPem</code></td>
-                <td>HOPE: NIM root CA certificate (PEM)</td>
+                <td>HOPE: Audio2Face-3D root CA certificate (PEM)</td>
                 <td>secret</td>
                 <td>Optional</td>
-                <td>CA certificate that signed your NIM server certificate. Optional until the avatar tier is used.</td>
+                <td>CA certificate that signed your inference server certificate. Optional until the avatar tier is used.</td>
               </tr>
               <tr>
                 <td><code>hope.a2f3d.nimMtls.clientCertPem</code></td>
-                <td>HOPE: NIM client certificate (PEM)</td>
+                <td>HOPE: Audio2Face-3D client certificate (PEM)</td>
                 <td>secret</td>
                 <td>Optional</td>
-                <td>Client certificate the avatar engine presents to your NIM.</td>
+                <td>Client certificate the avatar engine presents to your inference server.</td>
               </tr>
               <tr>
                 <td><code>hope.a2f3d.nimMtls.clientKeyPem</code></td>
-                <td>HOPE: NIM client private key (PEM)</td>
+                <td>HOPE: Audio2Face-3D client private key (PEM)</td>
                 <td>secret</td>
                 <td>Optional</td>
                 <td>Private key for the client certificate above.</td>

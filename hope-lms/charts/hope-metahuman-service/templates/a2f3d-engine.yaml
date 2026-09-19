@@ -25,7 +25,9 @@ data:
   SERVICE_NAME: 'a2f3d-engine'
   HOST: '0.0.0.0'
   PORT: '9005'
-  # Customer-supplied NVIDIA Audio2Face-3D NIM endpoint (not shipped by this chart).
+  # Customer-supplied Audio2Face-3D inference endpoint (not shipped by this
+  # chart). The NIM_* names are a frozen contract: existing installs' values
+  # files key off them, and NVIDIA's NIM they were named for is end-of-life.
   A2F_NIM_URL: {{ .Values.a2f3d.nimUrl | quote }}
   NIM_SECURE_MODE: {{ .Values.a2f3d.nimSecureMode | quote }}
   {{- if eq .Values.a2f3d.nimSecureMode "mtls" }}

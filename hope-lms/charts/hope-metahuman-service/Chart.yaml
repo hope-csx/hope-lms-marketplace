@@ -4,8 +4,8 @@ description: >-
   HOPE Metahuman Service — real-time avatar animation (NVIDIA Audio2Face-3D),
   STT/TTS, and agent orchestration for government and regulated-sector
   customers. This chart is packaged for Google Cloud Marketplace and installs
-  the admin-web, api, agent-engine and a2f3d-engine tiers. The NVIDIA
-  Audio2Face-3D NIM is a customer-supplied prerequisite and is not shipped by
+  the admin-web, api, agent-engine and a2f3d-engine tiers. An Audio2Face-3D
+  inference server is a customer-supplied prerequisite and is not shipped by
   this chart.
 type: application
 # `version` is the chart version and `appVersion` is the released product

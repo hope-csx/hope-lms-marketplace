@@ -72,7 +72,7 @@ cluster:
 - **api** — the HOPE backend; the second license-enforcement point.
 - **admin-web** — the HOPE administration portal.
 - **agent-engine** — the conversational AI tier (Vertex AI).
-- **a2f3d-engine** — the Audio2Face-3D bridge to your customer-supplied NVIDIA NIM.
+- **a2f3d-engine** — the Audio2Face-3D bridge to your customer-operated inference server.
 - **avatar-bridge** — optional, only when live Premium avatars are enabled.
 
 All durable state except the vector index lives in Cloud SQL (PostgreSQL 16,
@@ -103,7 +103,7 @@ segment — the other images are siblings beneath it:
 | `deployer`                       | `.../hope-mtp/hope-lms/deployer`                                    |
 
 Each is tagged with both the release track (`0.2`) and the exact version
-(`0.2.0`). When Marketplace installs the app it re-publishes these images into
+(`0.2.1`). When Marketplace installs the app it re-publishes these images into
 its own registry and rewrites the chart's image values accordingly, so the
 paths above matter only if you are mirroring images into an internal registry
 for a disconnected install:
@@ -113,7 +113,7 @@ export ROOT=us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms
 for img in "" /web /session-gateway /assessment-engine /curriculum-engine /qdrant \
            /hope-api /hope-admin-web /hope-agent-engine /hope-a2f3d-engine \
            /hope-avatar-bridge /hope-workflow-runner /deployer; do
-  crane copy "$ROOT$img:0.2.0" "YOUR_REGISTRY/hope-lms$img:0.2.0"
+  crane copy "$ROOT$img:0.2.1" "YOUR_REGISTRY/hope-lms$img:0.2.1"
 done
 ```
 
@@ -173,6 +173,27 @@ Complete these steps once per cluster, before your first CLI install.
      single-use invitation tokens into the application log. MTP's own mail
      settings stay optional.
    - A valid HOPE MTP license from your CornerstoneX representative.
+   - For animated Standard 3D avatars, an NVIDIA L4-class GPU node and a
+     customer-operated Audio2Face-3D inference server. NVIDIA's NIM is
+     end-of-life; use a server built from NVIDIA's open-source Audio2Face-3D
+     SDK and model weights, or another server implementing the same
+     `nvidia_ace` `A2FControllerService` gRPC contract. The Marketplace package
+     does not install or manage this server.
+
+5. **Prepare Audio2Face-3D (only when using animated Standard 3D avatars):**
+
+   1. Deploy the inference server on the GPU node before installing HOPE MTP.
+      It must be reachable from the target namespace over gRPC, normally on
+      port `52000`. Bake or pre-stage the model weights so no runtime internet
+      access is required.
+   2. Issue an mTLS server certificate whose DNS SAN covers the hostname you
+      will configure, and a client certificate for HOPE's `a2f3d-engine`.
+      Configure the inference server to trust that client certificate.
+   3. Set `hope.a2f3d.nimUrl` to the reachable `HOST:PORT`, leave
+      `hope.a2f3d.nimSecureMode` at `mtls`, and provide the root CA, client
+      certificate and client key in the three `hope.a2f3d.nimMtls.*`
+      parameters. The `nim*` names are retained for compatibility; no NVIDIA
+      NIM or NGC entitlement is required.
 
    Every parameter's meaning is in the
    [Deployment & Configuration Guide](docs/deploy-guide.html) — the parameter
@@ -228,6 +249,11 @@ Complete these steps once per cluster, before your first CLI install.
      "hope.kms.workflowLogDataKmsKey": "projects/YOUR_PROJECT_ID/locations/us/keyRings/hope/cryptoKeys/workflow-log-data",
      "hope.mail.smtpHost": "smtp.agency.gov",
      "hope.mail.fromAddress": "no-reply@agency.gov",
+     "hope.a2f3d.nimUrl": "a2f3d-inference.gpu-services.svc.cluster.local:52000",
+     "hope.a2f3d.nimSecureMode": "mtls",
+     "hope.a2f3d.nimMtls.rootCaPem": "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----",
+     "hope.a2f3d.nimMtls.clientCertPem": "-----BEGIN CERTIFICATE-----\n...\n-----END CERTIFICATE-----",
+     "hope.a2f3d.nimMtls.clientKeyPem": "-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----",
      "hope.serviceAccounts.apiGsa": "hope-api@YOUR_PROJECT_ID.iam.gserviceaccount.com",
      "hope.serviceAccounts.agentEngineGsa": "hope-agent-engine@YOUR_PROJECT_ID.iam.gserviceaccount.com",
      "hope.secrets.databaseUrl": "postgresql://USER:PASSWORD@HOST:5432/hope_metahuman",
@@ -245,7 +271,7 @@ Complete these steps once per cluster, before your first CLI install.
    > Never commit `params.json` to version control; it contains credentials.
 
 3. **Deploy** using the deployer image, pinned to the release track (`0.2`)
-   or an exact version (`0.2.0`):
+   or an exact version (`0.2.1`):
 
    ```bash
    export REGISTRY=us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms
@@ -403,7 +429,7 @@ customer-managed and outlive the install — clean those up separately.
 | `qdrant-0` stays `Pending`                                                       | The PersistentVolumeClaim did not bind                              | Confirm `qdrant.storageClass` exists and can provision a 20 GiB ReadWriteOnce volume                                                                          |
 | 503 on every MTP route except `/health`                                          | The `goog-partner-solution` label was removed from the `mtp-api` Pod | Restore the label; the API recovers on its next 15-minute check                                                                                                |
 | Training sessions never start                                                    | Tenant not bound to HOPE, or `/ws` not routed to the session gateway | Complete the post-install binding (Installation step 5) and route `/ws` on the API host to `mtp-session-gateway`                                              |
-| Avatar/voice features unavailable                                                | No reachable NVIDIA NIM configured                                  | Set `hope.a2f3d.nimUrl` to your NIM and supply the three `hope.a2f3d.nimMtls.*` certificates                                                                   |
+| Avatar animation is unavailable                                                  | No reachable Audio2Face-3D inference server configured              | Deploy a compatible open-source-SDK inference server, set `hope.a2f3d.nimUrl`, and supply the three `hope.a2f3d.nimMtls.*` certificates                        |
 | Install reports that the application did not become ready                       | One workload never started; a cold cluster pulls every image first  | The deployer allows 25 minutes and then prints the status and log tail of every pod that is not ready — read that first. `kubectl logs job/<name>-deployer -n <namespace>` has the full output |
 
 Both APIs apply database migrations in an init container before their own

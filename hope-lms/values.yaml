@@ -56,19 +56,19 @@ consumptionTracking:
 # ── MTP container images ─────────────────────────────────────────────────────
 mtp:
   api:
-    image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms:0.2.0
+    image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms:0.2.1
     replicas: 2
   web:
-    image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/web:0.2.0
+    image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/web:0.2.1
     replicas: 2
   sessionGateway:
-    image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/session-gateway:0.2.0
+    image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/session-gateway:0.2.1
     replicas: 2
   assessmentEngine:
-    image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/assessment-engine:0.2.0
+    image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/assessment-engine:0.2.1
     replicas: 2
   curriculumEngine:
-    image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/curriculum-engine:0.2.0
+    image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/curriculum-engine:0.2.1
     replicas: 2
   # Vertex AI / Document AI, reached through the customer's restricted Google
   # API endpoints (no internet egress). Model names are release constants.
@@ -85,7 +85,7 @@ mtp:
 # learner documents into per-tenant `mtp-`-prefixed collections. Single
 # replica on a ReadWriteOnce claim; see templates/qdrant.yaml.
 qdrant:
-  image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/qdrant:0.2.0
+  image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/qdrant:0.2.1
   # StorageClass for the index volume (schema type STORAGE_CLASS, SSD).
   storageClass: ''
   storageSize: 20Gi
@@ -97,7 +97,7 @@ qdrant:
 # this is not a schema.yaml image property, so Marketplace never rewrites it at
 # deploy time; scripts/sync-marketplace-version.mjs pins its tag to the release
 # version, otherwise a release silently reports its predecessor.
-deployerImage: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/deployer:0.2.0
+deployerImage: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/deployer:0.2.1
 
 # ── Reporting secret (Marketplace usage reporting / entitlement) ──────────────
 # Injected by Marketplace when the app is a paid listing. Referenced by the
@@ -205,20 +205,20 @@ hope:
   # the subchart must not render its own (see the subchart's values.yaml).
   standalone: false
   api:
-    image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/hope-api:0.2.0
+    image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/hope-api:0.2.1
     replicas: 2
   adminWeb:
-    image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/hope-admin-web:0.2.0
+    image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/hope-admin-web:0.2.1
     replicas: 2
   agentEngine:
-    image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/hope-agent-engine:0.2.0
+    image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/hope-agent-engine:0.2.1
     replicas: 2
   a2f3dEngine:
-    image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/hope-a2f3d-engine:0.2.0
+    image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/hope-a2f3d-engine:0.2.1
     replicas: 2
   liveAvatars:
     enabled: false
-    image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/hope-avatar-bridge:0.2.0
+    image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/hope-avatar-bridge:0.2.1
   # The gVisor sandbox for tenant-authored code creates its own Namespace and
   # RBAC, which the Marketplace deployer cannot apply (it applies everything
   # into the release namespace). Declarative workflows still run; a `code`
@@ -226,5 +226,5 @@ hope:
   # ../schema.yaml because Marketplace re-publishes every declared image.
   workflowSandbox:
     mode: disabled
-    image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/hope-workflow-runner:0.2.0
-  deployerImage: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/deployer:0.2.0
+    image: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/hope-workflow-runner:0.2.1
+  deployerImage: us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms/deployer:0.2.1
