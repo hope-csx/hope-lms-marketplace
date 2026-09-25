@@ -103,7 +103,7 @@ segment — the other images are siblings beneath it:
 | `deployer`                       | `.../hope-mtp/hope-lms/deployer`                                    |
 
 Each is tagged with both the release track (`0.2`) and the exact version
-(`0.2.2`). When Marketplace installs the app it re-publishes these images into
+(`0.2.3`). When Marketplace installs the app it re-publishes these images into
 its own registry and rewrites the chart's image values accordingly, so the
 paths above matter only if you are mirroring images into an internal registry
 for a disconnected install:
@@ -113,7 +113,7 @@ export ROOT=us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms
 for img in "" /web /session-gateway /assessment-engine /curriculum-engine /qdrant \
            /hope-api /hope-admin-web /hope-agent-engine /hope-a2f3d-engine \
            /hope-avatar-bridge /hope-workflow-runner /deployer; do
-  crane copy "$ROOT$img:0.2.2" "YOUR_REGISTRY/hope-lms$img:0.2.2"
+  crane copy "$ROOT$img:0.2.3" "YOUR_REGISTRY/hope-lms$img:0.2.3"
 done
 ```
 
@@ -271,7 +271,7 @@ Complete these steps once per cluster, before your first CLI install.
    > Never commit `params.json` to version control; it contains credentials.
 
 3. **Deploy** using the deployer image, pinned to the release track (`0.2`)
-   or an exact version (`0.2.2`):
+   or an exact version (`0.2.3`):
 
    ```bash
    export REGISTRY=us-docker.pkg.dev/cornerstonex-public/hope-mtp/hope-lms

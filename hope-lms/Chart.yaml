@@ -15,8 +15,8 @@ type: application
 # scripts/sync-marketplace-version.mjs. Do not edit by hand for a release —
 # run the sync script so all three stay identical (Marketplace rejects a
 # deployer whose tag != publishedVersion).
-version: 0.2.2
-appVersion: '0.2.2'
+version: 0.2.3
+appVersion: '0.2.3'
 
 # The HOPE Metahuman Service chart, vendored into charts/ from the HOPE
 # repository at the commit recorded in ../HOPE_REF by scripts/vendor-hope-chart.sh
