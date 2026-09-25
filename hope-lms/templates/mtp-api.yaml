@@ -46,7 +46,10 @@ data:
   ASSESSMENT_WORKER_ENABLED: 'true'
   CURRICULUM_WORKER_ENABLED: 'true'
   {{- if .Values.storage.documentsBucket }}
-  DOCUMENTS_BUCKET: {{ .Values.storage.documentsBucket | quote }}
+  GCS_DOCUMENTS_BUCKET: {{ .Values.storage.documentsBucket | quote }}
+  {{- end }}
+  {{- if .Values.storage.contentBucket }}
+  GCS_CONTENT_BUCKET: {{ .Values.storage.contentBucket | quote }}
   {{- end }}
   {{- if .Values.mail.smtpHost }}
   SMTP_HOST: {{ .Values.mail.smtpHost | quote }}

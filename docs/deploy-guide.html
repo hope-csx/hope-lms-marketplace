@@ -685,6 +685,13 @@
                 <td>Optional</td>
                 <td>GCS bucket (bare name) for uploaded learner documents. Leave empty to store document bytes in the database.</td>
               </tr>
+              <tr>
+                <td><code>storage.contentBucket</code></td>
+                <td>MTP content images bucket</td>
+                <td>string</td>
+                <td>Optional</td>
+                <td>GCS bucket (bare name) for images authors add to lessons. Leave empty to disable image upload. The MTP API service account needs <code>roles/storage.objectAdmin</code> on it.</td>
+              </tr>
               </tbody>
             </table>
           </div>

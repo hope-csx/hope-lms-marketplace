@@ -8,18 +8,15 @@ x-google-marketplace:
   # The release version. MUST match the release tag on the deployer image.
   # Kept in lockstep with hope-lms/Chart.yaml and the deployer tag by
   # scripts/sync-marketplace-version.mjs.
-  publishedVersion: '0.2.1'
+  publishedVersion: '0.2.2'
   publishedVersionMetadata:
     releaseNote: >-
-      HOPE MTP 0.2.1 refreshes both the Metahuman Training Platform and the
-      bundled HOPE Metahuman Service. It adds the current course-authoring and
-      approval improvements, Deepgram Flux speech-to-text, and support for a
-      customer-operated Audio2Face-3D inference server built from NVIDIA's
-      open-source SDK and model weights. NVIDIA's end-of-life NIM is no longer
-      required. The inference server remains a customer-supplied prerequisite
-      and is not installed by this Marketplace package.
+      HOPE MTP 0.2.2 rebuilds the affected Metahuman Training Platform and
+      bundled HOPE Metahuman Service images with Debian's OpenSSL security
+      update for CVE-2026-75803. The release pipeline now verifies the fixed
+      OpenSSL package version in every affected runtime image before publishing.
     releaseTypes:
-      - Feature
+      - SecurityFix
     recommended: true
 
   # Deployer uses the Helm base image; the chart lives at
@@ -357,6 +354,11 @@ properties:
     type: string
     title: MTP documents bucket
     description: GCS bucket (bare name) for uploaded learner documents. Leave empty to store document bytes in the database.
+    default: ''
+  storage.contentBucket:
+    type: string
+    title: MTP content images bucket
+    description: GCS bucket (bare name) for images authors add to lessons. Leave empty to disable image upload. The MTP API service account needs roles/storage.objectAdmin on it.
     default: ''
 
   # ── In-cluster Qdrant vector store ──────────────────────────────────────────
