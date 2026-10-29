@@ -8,13 +8,14 @@ x-google-marketplace:
   # The release version. MUST match the release tag on the deployer image.
   # Kept in lockstep with hope-lms/Chart.yaml and the deployer tag by
   # scripts/sync-marketplace-version.mjs.
-  publishedVersion: '0.2.3'
+  publishedVersion: '0.2.7'
   publishedVersionMetadata:
     releaseNote: >-
-      HOPE MTP 0.2.3 rebuilds the affected Metahuman Training Platform and
-      bundled HOPE Metahuman Service images with Debian's OpenSSL security
-      update for CVE-2026-75803. The release pipeline now verifies the fixed
-      OpenSSL package version in every affected runtime image before publishing.
+      HOPE MTP 0.2.7 rebuilds the bundled HOPE API with undici 6.29.1 to fix
+      CVE-2026-109383, a TLS certificate-validation bypass caused by dropped
+      custom verification callbacks. The pinned HOPE security update also
+      refreshes other newly vulnerable runtime dependencies so the rebuilt
+      Marketplace images clear the current dependency security gate.
     releaseTypes:
       - Security
     recommended: true
@@ -344,7 +345,7 @@ properties:
     title: Document AI processor ID
     description: >-
       Form Parser processor in your project used to extract uploaded documents.
-      Leave empty to use the built-in text analyzer instead of Document AI.
+      Required for the Marketplace Co-Author fallback; PDFs are limited to 15 pages.
     default: ''
   docai.location:
     type: string
@@ -727,6 +728,7 @@ required:
   - serviceAccounts.assessmentEngineGsa
   - serviceAccounts.curriculumEngineGsa
   - secrets.databaseUrl
+  - docai.processorId
   - qdrant.storageClass
   - hope.domains.appUrl
   - hope.domains.jwtIssuer

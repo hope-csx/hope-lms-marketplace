@@ -317,6 +317,7 @@
             <li><strong>GCP service accounts</strong> bound to the Kubernetes ServiceAccounts via Workload Identity: at minimum <code>mtp-api</code>, <code>mtp-assessment-engine</code>, <code>mtp-curriculum-engine</code>, HOPE <code>api</code> and HOPE <code>agent-engine</code>. Grant KMS on the respective keys, <code>roles/aiplatform.user</code> to the two MTP engines and HOPE's agent-engine, Document AI and GCS only where you configure them.</li>
             <li><strong>Private Google Access</strong> on the subnet so pods reach Google APIs without internet egress.</li>
             <li><strong>An SSD-backed StorageClass</strong> for the 20 GiB Qdrant volume (<code>qdrant.storageClass</code>).</li>
+            <li><strong>A Document AI Form Parser</strong> for Marketplace Co-Author sources (<code>docai.processorId</code>). This GCP-only path accepts PDFs up to 15 pages.</li>
             <li><strong>Two RS256 keypairs</strong> for HOPE's service-to-service tokens (section 5, HOPE connection strings) — generate with <code>openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048</code>.</li>
             <li><strong>A valid HOPE MTP license</strong> (section 3).</li>
             <li><em>(optional avatar tier)</em> an NVIDIA L4-class GPU node and a reachable Audio2Face-3D inference server built from NVIDIA's open-source SDK and model weights (or an equivalent server implementing <code>A2FControllerService</code>), plus its mTLS certificates. NVIDIA's NIM is end-of-life and no NGC entitlement is required. Deploy this server before HOPE MTP; it is not installed by the Marketplace package.</li>
@@ -669,7 +670,7 @@
                 <td>Document AI processor ID</td>
                 <td>string</td>
                 <td>Optional</td>
-                <td>Form Parser processor in your project used to extract uploaded documents. Leave empty to use the built-in text analyzer instead of Document AI.</td>
+                <td>Required Form Parser processor used by the Marketplace Co-Author fallback. PDFs are limited to 15 pages.</td>
               </tr>
               <tr>
                 <td><code>docai.location</code></td>

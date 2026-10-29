@@ -43,6 +43,10 @@ data:
   # engines' sole caller and the NetworkPolicies enforce it (SC-7).
   ASSESSMENT_ENGINE_URL: 'http://mtp-assessment-engine.{{ .Release.Namespace }}.{{ include "hope-lms.svcDomain" . }}:80'
   CURRICULUM_ENGINE_URL: 'http://mtp-curriculum-engine.{{ .Release.Namespace }}.{{ include "hope-lms.svcDomain" . }}:80'
+  # Marketplace is a no-internet-egress deployment. Keep this hard-coded rather
+  # than configurable so the chart cannot issue an OpenAI request or require an
+  # OpenAI credential.
+  COAUTHOR_SOURCE_PROVIDER: 'curriculum_retrieval'
   ASSESSMENT_WORKER_ENABLED: 'true'
   CURRICULUM_WORKER_ENABLED: 'true'
   {{- if .Values.storage.documentsBucket }}

@@ -28,17 +28,15 @@ data:
   # API key is the client half of qdrant-secret, in mtp-curriculum-engine-secret.
   VECTOR_PROVIDER: 'qdrant'
   QDRANT_URL: 'http://qdrant.{{ .Release.Namespace }}.{{ include "hope-lms.svcDomain" . }}:6333'
-  # Document AI extraction only when the customer supplies a processor; the
-  # engine's local analyzer otherwise. Embeddings and plan drafting go through
-  # the restricted Vertex endpoint either way (§8, §13).
-  {{- if .Values.docai.processorId }}
+  # Marketplace is the deliberate GCP-only Co-Author fallback: Document AI +
+  # Vertex + in-cluster Qdrant, with no OpenAI egress path.
   ANALYSIS_PROVIDER: 'docai'
   DOCAI_PROJECT: {{ .Values.global.gcp.projectId | quote }}
   DOCAI_LOCATION: {{ .Values.docai.location | quote }}
-  DOCAI_PROCESSOR_ID: {{ .Values.docai.processorId | quote }}
-  {{- else }}
-  ANALYSIS_PROVIDER: 'fake'
-  {{- end }}
+  DOCAI_PROCESSOR_ID: {{ required "docai.processorId is required for Marketplace Co-Author sources" .Values.docai.processorId | quote }}
+  # Document AI's synchronous parser limit. The Marketplace path fails with a
+  # named author-facing error and never attempts an OpenAI fallback.
+  DOCUMENT_PAGE_LIMIT: '15'
   EMBEDDING_PROVIDER: 'vertex'
   EMBEDDING_MODEL: {{ .Values.mtp.vertex.embeddingModel | quote }}
   PLAN_PROVIDER: 'vertex'

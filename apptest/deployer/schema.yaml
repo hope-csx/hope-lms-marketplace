@@ -85,6 +85,15 @@ properties:
     type: string
     default: ''
 
+  # Marketplace's verification project does not have one of our Document AI
+  # processors. The curriculum engine constructs the client lazily, so a
+  # syntactically valid non-empty id is sufficient for boot and the smoke test.
+  # This must live in the schema overlay: expanded schema values override the
+  # chart overlay, and the production property is required with an empty default.
+  docai.processorId:
+    type: string
+    default: apptest-processor
+
   secrets.databaseUrl:
     type: string
     default: postgresql://hope:apptest-not-a-secret@apptest-postgres:5432/mtp?sslmode=disable

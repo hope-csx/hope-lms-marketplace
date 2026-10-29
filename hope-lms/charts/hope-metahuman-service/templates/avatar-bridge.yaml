@@ -32,7 +32,9 @@ data:
   NODE_ENV: 'production'
   # Covers provider start-up for a renderer the API launched moments earlier,
   # not user think time.
-  RENDERER_JOIN_TIMEOUT_MS: '20000'
+  # Provider readiness is video publication, which can lag room membership on
+  # cold starts. Kept below the API bridge request budget.
+  RENDERER_JOIN_TIMEOUT_MS: '60000'
   # How long a room stays warm after the last utterance, so a conversational
   # turn does not pay reconnection latency.
   ROOM_IDLE_TIMEOUT_MS: '120000'

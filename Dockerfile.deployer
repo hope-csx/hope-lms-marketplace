@@ -39,29 +39,29 @@ ARG MARKETPLACE_TOOLS_TAG=13.0.9
 # dependency, and there is no upstream release of either tool that is clean:
 # helm v4.2.4 carries the x/net fix but is still built with go1.26.5, and
 # v1.36.3 is the newest kubectl in any release channel. So both are rebuilt here
-# from their upstream tags against go1.26.6 with the patched modules, then
+# from their upstream tags against a patched Go toolchain and modules, then
 # installed over the base image's copies. FedRAMP SI-2, SC-8.
 #
 # When bumping MARKETPLACE_TOOLS_TAG, re-check what the new base ships (`syft
 # <image>` or scripts/security/scan-marketplace-images.sh) and realign
 # HELM_VERSION / KUBECTL_VERSION with it. The guards in the final stage fail the
 # build rather than let a mismatch through silently.
-ARG GO_TOOLCHAIN_TAG=1.26.6-bookworm
+ARG GO_TOOLCHAIN_TAG=1.26.9-bookworm
 ARG HELM_VERSION=v4.2.4
 ARG HELM_COMMIT=3900f434fd3ef2b84065dc04508df48f288dba00
 ARG KUBECTL_VERSION=v1.36.3
 ARG KUBECTL_COMMIT=0f29094e5b73085e3802ecc1298ecae13866bfe6
 # Lower bounds, not exact pins — `go mod edit -require` only raises the floor,
 # and a later `go mod tidy` may resolve higher if another dependency asks for it.
-#   x/net  >= v0.55.0 — GO-2026-5026 (CVE-2026-39821); v0.56.0 also clears
-#                       GO-2026-4918 and GO-2026-5942
+#   x/net  >= v0.60.0 — GO-2026-6603, GO-2026-6610, GO-2026-6611 and
+#                       GO-2026-6612; also retains the earlier IDNA fixes
 #   x/text >= v0.39.0 — GO-2026-5970
 #   x/crypto >= v0.56.0 — GO-2026-6303, GO-2026-6354 and GO-2026-6355
 #   oras   >= v2.6.2  — GHSA-fxhp-mv3v-67qp (helm's registry client)
-ARG GO_X_NET_VERSION=v0.56.0
-ARG GO_X_TEXT_VERSION=v0.40.0
-ARG GO_X_CRYPTO_VERSION=v0.56.0
-ARG ORAS_GO_VERSION=v2.6.2
+ARG GO_X_NET_VERSION=v0.60.0
+ARG GO_X_TEXT_VERSION=v0.43.0
+ARG GO_X_CRYPTO_VERSION=v0.58.0
+ARG ORAS_GO_VERSION=v2.6.3
 
 FROM golang:${GO_TOOLCHAIN_TAG} AS tools
 
@@ -133,7 +133,7 @@ RUN set -eu; \
       -o /out/kubectl ./cmd/kubectl; \
     /out/kubectl version --client
 
-FROM gcr.io/cloud-marketplace-tools/k8s/deployer_helm:$MARKETPLACE_TOOLS_TAG
+FROM gcr.io/cloud-marketplace-tools/k8s/deployer_helm:$MARKETPLACE_TOOLS_TAG AS deployer
 
 ARG HELM_VERSION
 ARG KUBECTL_VERSION
@@ -271,3 +271,33 @@ COPY apptest/deployer/inject-test-license.sh /tmp/inject-test-license.sh
 RUN --mount=type=secret,id=apptest_license \
     bash /tmp/inject-test-license.sh /data-test/schema.yaml \
     && rm -f /tmp/inject-test-license.sh
+
+# Exercise the same overlay → expand → Helm render path that Google's
+# TEST_K8S_APP_FUNCTIONALITY deployer Job runs. Keep it in a throwaway stage:
+# print_config.py emits masked values while rendering, including the test
+# license, so all output is suppressed and none of the expanded artifacts are
+# copied into the published image. The marker dependency forces BuildKit to run
+# this stage before producing the final image.
+FROM deployer AS apptest-render-validation
+RUN if ! ( \
+      set -eu; \
+      printf 'name: hope-lms\nnamespace: apptest\n__image_repo_prefix__: gcr.io/example/hope-lms\nglobal.license.key: build-render-only\n' \
+        > /data/values.yaml; \
+      overlay_test_schema.py \
+        --test_schema /data-test/schema.yaml \
+        --original_schema /data/schema.yaml \
+        --output /data/schema.yaml; \
+      /bin/expand_config.py \
+        --values_mode raw \
+        --app_uid 00000000-0000-0000-0000-000000000000; \
+      NAME=hope-lms NAMESPACE=apptest create_manifests.sh --mode=test; \
+      test "$(find /data/manifest-expanded -type f -size +0c | wc -l)" -gt 0 \
+    ) >/tmp/apptest-render.log 2>&1; then \
+      echo 'Marketplace test-deployment render failed' >&2; \
+      exit 1; \
+    fi; \
+    touch /apptest-render-valid
+
+FROM deployer
+COPY --from=apptest-render-validation /apptest-render-valid /tmp/apptest-render-valid
+RUN rm /tmp/apptest-render-valid
